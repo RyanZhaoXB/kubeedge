@@ -25,6 +25,25 @@ import (
 type DeviceModelSpec struct {
 	// Required: List of device properties.
 	Properties []DeviceProperty `json:"properties,omitempty"`
+
+	// +optional: List of device commands
+	Commands []DeviceCommand `json:"commands, omitempty"`
+}
+
+// DeviceCommand describes an individual device command
+type DeviceCommand struct {
+	// Required: The device command name.
+	Name string `json:"name"`
+	// Required: The device command url.
+	Url string `json:"url"`
+	// Required: The device command method.
+	Method string `json:"method"`
+	// Required: The device command status code.
+	StatusCode []string `json:"status_code"`
+	// +optional
+	Parameters []string `json:"parameters, omitempty"`
+	// +optional
+	Response []interface{} `json:"response, omitempty"`
 }
 
 // DeviceProperty describes an individual device property / attribute like temperature / humidity etc.

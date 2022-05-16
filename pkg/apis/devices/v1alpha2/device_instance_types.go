@@ -172,6 +172,8 @@ type DeviceStatus struct {
 	// Optional: A passive device won't have twin properties and this list could be empty.
 	// +optional
 	Twins []Twin `json:"twins,omitempty"`
+	// +optional
+	State string `json:"state, omitempty"`
 }
 
 // Twin provides a logical representation of control properties (writable properties in the

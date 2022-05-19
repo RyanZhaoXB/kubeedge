@@ -92,6 +92,8 @@ type Modules struct {
 	ServiceBus *ServiceBus `json:"serviceBus,omitempty"`
 	// DeviceTwin indicates deviceTwin module config
 	DeviceTwin *DeviceTwin `json:"deviceTwin,omitempty"`
+	// DeviceManager indicates deviceManager module config
+	DeviceManager *DeviceManager `json:"deviceManager,omitempty"`
 	// DBTest indicates dbTest module config
 	DBTest *DBTest `json:"dbTest,omitempty"`
 	// EdgeStream indicates edgestream module config
@@ -459,4 +461,12 @@ type EdgeStream struct {
 	// WriteDeadline indicates write dead line (second)
 	// default 15
 	WriteDeadline int32 `json:"writeDeadline,omitempty"`
+}
+
+// DeviceManager indicates the DeviceManager module config
+type DeviceManager struct {
+	// Enable indicates whether DeviceManager is enabled,
+	// if set to false (for debugging etc.), skip checking other DeviceManager configs.
+	// default true
+	Enable bool `json:"enable"`
 }

@@ -56,10 +56,11 @@ func (us *UnixDomainSocket) StartServer(container *restful.Container) error {
 	}
 	if proto == "unix" {
 		addr = "/" + addr
-		if err := os.Remove(addr); err != nil && !os.IsNotExist(err) { //nolint: vetshadow
+		if err := os.Remove(addr); err != nil && !os.IsNotExist(err) {
 			klog.Errorf("failed to remove addr: %v", err)
 			return err
 		}
+
 	}
 
 	// Listen

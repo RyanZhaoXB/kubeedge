@@ -3,11 +3,15 @@ package devicemanager
 import (
 	"github.com/kubeedge/beehive/pkg/core"
 	"github.com/kubeedge/kubeedge/edge/pkg/common/modules"
-	"github.com/kubeedge/kubeedge/edge/pkg/common/udsserver"
 	"github.com/kubeedge/kubeedge/edge/pkg/devicemanager/config"
 	"github.com/kubeedge/kubeedge/edge/pkg/devicemanager/deviceservice"
+	"github.com/kubeedge/kubeedge/edge/pkg/devicemanager/utils/udsserver"
 	"github.com/kubeedge/kubeedge/pkg/apis/componentconfig/edgecore/v1alpha1"
+
+	dmiapi "github.com/kubeedge/kubeedge/edge/pkg/dmi/apis/v1"
 )
+
+var MapperInfos map[string]*dmiapi.MapperInfo
 
 type DeviceManager struct {
 	enable   bool
@@ -44,6 +48,7 @@ func (dm *DeviceManager) Enable() bool {
 }
 
 func (dm *DeviceManager) Start() {
+	MapperInfos = make(map[string] *dmiapi.MapperInfo)
 	dm.runDeviceManager()
 }
 

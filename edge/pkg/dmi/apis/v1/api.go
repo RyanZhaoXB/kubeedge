@@ -38,13 +38,13 @@ type MapperInfo struct {
 	// semver-compatible.
 	ApiVersion string `json:"api_version,omitempty"`
 
-	Protocol string
+	Protocol string	`json:"protocol,omitempty"`
 
-	AccessMode MapperAccessMode
+	AccessMode MapperAccessMode	`json:"access_mode,omitempty"`
 	// for mqtt or rest
-	Address interface{}
+	Address interface{}	`json:"address,omitempty"`
 
-	State string
+	State string	`json:"state,omitempty"`
 }
 
 type Event struct {

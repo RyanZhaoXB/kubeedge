@@ -8,12 +8,14 @@ import (
 	"path"
 	"strings"
 
+	"github.com/kubeedge/kubeedge/common/constants"
+
 	"k8s.io/klog/v2"
 
 	beehiveContext "github.com/kubeedge/beehive/pkg/core/context"
 	"github.com/kubeedge/beehive/pkg/core/model"
 	"github.com/kubeedge/kubeedge/cloud/pkg/common/modules"
-	"github.com/kubeedge/kubeedge/cloud/pkg/router/constants"
+	routerConstants "github.com/kubeedge/kubeedge/cloud/pkg/router/constants"
 	"github.com/kubeedge/kubeedge/cloud/pkg/router/listener"
 	"github.com/kubeedge/kubeedge/cloud/pkg/router/provider"
 	commonType "github.com/kubeedge/kubeedge/common/types"
@@ -40,12 +42,12 @@ func (sf *servicebusFactory) Type() v1.RuleEndpointTypeDef {
 }
 
 func (sf *servicebusFactory) GetSource(ep *v1.RuleEndpoint, sourceResource map[string]string) provider.Source {
-	targetURL, exist := sourceResource[constants.TargetURL]
+	targetURL, exist := sourceResource[routerConstants.TargetURL]
 	if !exist {
 		klog.Errorf("source resource attributes \"target_url\" does not exist")
 		return nil
 	}
-	nodeName, exist := sourceResource[constants.NodeName]
+	nodeName, exist := sourceResource[routerConstants.NodeName]
 	if !exist {
 		klog.Errorf("source resource attributes \"node_name\" does not exist")
 		return nil
@@ -62,7 +64,7 @@ func (sb *ServiceBus) RegisterListener(handle listener.Handle) error {
 	listener.MessageHandlerInstance.AddListener(fmt.Sprintf("servicebus/%v/%v", path.Join("node", sb.nodeName), sb.TargetURL), handle)
 	msg := model.NewMessage("")
 	msg.SetResourceOperation(fmt.Sprintf("%v/%v", path.Join("node", sb.nodeName), sb.TargetURL), "start")
-	msg.SetRoute("router_servicebus", modules.UserGroup)
+	msg.SetRoute(constants.RouterSourceServiceBus, constants.UserGroup)
 	beehiveContext.Send(modules.CloudHubModuleName, *msg)
 	return nil
 }
@@ -70,13 +72,13 @@ func (sb *ServiceBus) RegisterListener(handle listener.Handle) error {
 func (sb *ServiceBus) UnregisterListener() {
 	msg := model.NewMessage("")
 	msg.SetResourceOperation(path.Join("node", sb.nodeName, sb.TargetURL), "stop")
-	msg.SetRoute("router_servicebus", modules.UserGroup)
+	msg.SetRoute(constants.RouterSourceServiceBus, constants.UserGroup)
 	beehiveContext.Send(modules.CloudHubModuleName, *msg)
 	listener.MessageHandlerInstance.RemoveListener(path.Join("servicebus/node", sb.nodeName, sb.TargetURL))
 }
 
 func (sb *ServiceBus) Name() string {
-	return constants.ServicebusProvider
+	return routerConstants.ServicebusProvider
 }
 
 func (sb *ServiceBus) Forward(target provider.Target, data interface{}) (response interface{}, err error) {
@@ -139,7 +141,7 @@ func (sb *ServiceBus) GoToTarget(data map[string]interface{}, stop chan struct{}
 	}
 	msg.SetResourceOperation(resource, request.Method)
 	msg.FillBody(request)
-	msg.SetRoute("router_servicebus", modules.UserGroup)
+	msg.SetRoute(constants.RouterSourceServiceBus, constants.UserGroup)
 	beehiveContext.Send(modules.CloudHubModuleName, *msg)
 	if stop != nil {
 		listener.MessageHandlerInstance.SetCallback(messageID, func(message *model.Message) {

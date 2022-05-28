@@ -24,7 +24,6 @@ import (
 	hubconfig "github.com/kubeedge/kubeedge/cloud/pkg/cloudhub/config"
 	"github.com/kubeedge/kubeedge/cloud/pkg/common/client"
 	"github.com/kubeedge/kubeedge/cloud/pkg/common/modules"
-	deviceconst "github.com/kubeedge/kubeedge/cloud/pkg/devicecontroller/constants"
 	edgeconst "github.com/kubeedge/kubeedge/cloud/pkg/edgecontroller/constants"
 	edgemessagelayer "github.com/kubeedge/kubeedge/cloud/pkg/edgecontroller/messagelayer"
 	"github.com/kubeedge/kubeedge/cloud/pkg/synccontroller"
@@ -143,13 +142,13 @@ func (mh *MessageHandle) HandleServer(container *mux.MessageContainer, writer mu
 			mh.MessageAcks.Delete(container.Message.Header.ParentID)
 		}
 		return
-	} else if container.Message.GetOperation() == beehiveModel.UploadOperation && container.Message.GetGroup() == modules.UserGroup {
+	} else if container.Message.GetOperation() == beehiveModel.UploadOperation && container.Message.GetGroup() == constants.UserGroup {
 		container.Message.Router.Resource = fmt.Sprintf("node/%s/%s", nodeID, container.Message.Router.Resource)
 		beehiveContext.Send(modules.RouterModuleName, *container.Message)
 	} else {
 		err := mh.PubToController(&model.HubInfo{ProjectID: projectID, NodeID: nodeID}, container.Message)
 		if err != nil {
-			// if err, we should stop node, write data to edgehub, stop nodify
+			// if err, we should stop node, write data to edgehub, stop notify
 			klog.Errorf("Failed to serve handle with error: %s", err.Error())
 		}
 	}
@@ -592,7 +591,7 @@ func (mh *MessageHandle) saveSuccessPoint(msg *beehiveModel.Message, info *model
 	}
 
 	// TODO: save device info
-	if msg.GetGroup() == deviceconst.GroupTwin {
+	if msg.GetGroup() == constants.ResourceGroupDeviceManager {
 	}
 	klog.V(4).Infof("saveSuccessPoint successfully for message: %s", msg.GetResource())
 }

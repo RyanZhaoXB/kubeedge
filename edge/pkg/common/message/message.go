@@ -18,9 +18,7 @@ const (
 	OperationKeepalive         = "keepalive"
 
 	ResourceGroupName = "resource"
-	TwinGroupName     = "twin"
 	FuncGroupName     = "func"
-	UserGroupName     = "user"
 )
 
 //BuildMsg returns message object with router and content details

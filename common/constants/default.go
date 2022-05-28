@@ -18,6 +18,9 @@ const (
 
 	SystemName      = "kubeedge"
 	SystemNamespace = SystemName
+
+	// UserGroup is ServiceBus group
+	UserGroup = "user"
 )
 
 // Resources
@@ -132,6 +135,9 @@ const (
 	ResourceTypePersistentVolume      = "persistentvolume"
 	ResourceTypePersistentVolumeClaim = "persistentvolumeclaim"
 	ResourceTypeVolumeAttachment      = "volumeattachment"
+	// ResourceTypeDeviceManager use to send message for edgehub DMI module
+	ResourceTypeDeviceManager  = "devicemanager"
+	ResourceGroupDeviceManager = "devicemanager"
 
 	CSIResourceTypeVolume                     = "volume"
 	CSIOperationTypeCreateVolume              = "createvolume"
@@ -146,4 +152,15 @@ const (
 
 	// MessageSuccessfulContent is the successful content value of Message struct
 	MessageSuccessfulContent string = "OK"
+
+	RouterSourceEventBus   = "router_eventbus"
+	RouterSourceServiceBus = "router_servicebus"
+
+	// DeviceController Data types
+	DataTypeInt     = "int"
+	DataTypeString  = "string"
+	DataTypeDouble  = "double"
+	DataTypeFloat   = "float"
+	DataTypeBoolean = "boolean"
+	DataTypeBytes   = "bytes"
 )

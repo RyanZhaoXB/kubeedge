@@ -209,7 +209,7 @@ func isListResource(msg *beehiveModel.Message) bool {
 		}
 	}
 	// user data
-	if msg.GetGroup() == modules.UserGroup {
+	if msg.GetGroup() == commonconst.UserGroup {
 		return true
 	}
 

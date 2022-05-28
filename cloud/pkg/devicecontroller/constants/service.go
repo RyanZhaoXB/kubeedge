@@ -9,7 +9,4 @@ const (
 	ResourceDevice               = "device"
 	ResourceTypeTwinEdgeUpdated  = "twin/edge_updated"
 	ResourceTypeMembershipDetail = "membership/detail"
-
-	// Group
-	GroupTwin = "twin"
 )

@@ -8,8 +8,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/kubeedge/kubeedge/edge/pkg/devicetwin/dtclient"
-	"github.com/kubeedge/kubeedge/edge/pkg/devicetwin/dtcommon"
+	"github.com/kubeedge/kubeedge/mappers/dtclient"
+	"github.com/kubeedge/kubeedge/mappers/dtcommon"
 )
 
 //Device the struct of device

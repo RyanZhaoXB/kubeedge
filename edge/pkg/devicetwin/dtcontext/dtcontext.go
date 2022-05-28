@@ -115,7 +115,7 @@ func (dtc *DTContext) UnlockAll() {
 	dtc.Mutex.Unlock()
 }
 
-//IsDeviceExist judge device is exist
+//IsDeviceExist judge device is exists
 func (dtc *DTContext) IsDeviceExist(deviceID string) bool {
 	_, ok := dtc.DeviceList.Load(deviceID)
 	return ok

@@ -10,13 +10,13 @@ type MapperAccessMode string
 
 // Access mode constants for a device property.
 const (
-	MQTT MapperAccessMode = "Mqtt"
+	MQTT MapperAccessMode = "MQTT"
 	REST MapperAccessMode = "REST"
 )
 
 type DeviceConfig struct {
-	model  v1alpha2.DeviceModel `json:"model"`
-	device v1alpha2.Device      `json:"device"`
+	Model  v1alpha2.DeviceModel `json:"model"`
+	Device v1alpha2.Device      `json:"device"`
 }
 
 type DeviceFilter struct {

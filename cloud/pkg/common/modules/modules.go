@@ -22,8 +22,6 @@ const (
 	RouterModuleName = "router"
 	RouterGroupName  = "router"
 
-	UserGroup = "user"
-
 	TunnelPort string = "tunnelport"
 
 	TunnelPortRecordAnnotationKey string = "tunnelportrecord.kubeedge.io"

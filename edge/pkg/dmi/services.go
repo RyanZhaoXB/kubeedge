@@ -7,7 +7,7 @@ import (
 	"github.com/kubeedge/kubeedge/pkg/apis/devices/v1alpha2"
 )
 
-// DeviceMapperService interface should be implemented by a device mapper or edgecore.
+// DeviceManagerService interface should be implemented by a device mapper or edgecore.
 // The methods should be thread-safe.
 type DeviceManagerService interface {
 	DeviceMapperManager
@@ -20,10 +20,10 @@ type DeviceManagerService interface {
 
 // DeviceMapperManager contains methods for mapper name, version and API version.
 type DeviceMapperManager interface {
-	// Version returns the device mapper name, device mapper version and device mapper API version
+	// GetMapper returns the device mapper name, device mapper version and device mapper API version
 	GetMapper(mapperName string) (*dmiapi.MapperInfo, error)
 
-	HealthCheck(mapperName string) string
+	HealthCheck(mapperName string) (string, error)
 
 	MapperRegister(mapper *dmiapi.MapperInfo) error
 }
@@ -38,13 +38,16 @@ type DeviceManager interface {
 	// RemoveDevice removes the device from platform by deviceID or device name.
 	RemoveDevice(deviceID string, deviceName string) error
 
+	// UpdateDevice update device meta data.
+	UpdateDevice(deviceID string, config *dmiapi.DeviceConfig) error
+
 	// UpdateDeviceStatus updates the status of the device.
 	UpdateDeviceStatus(deviceID string, deviceName string, desiredDevice *v1alpha2.DeviceStatus) error
 
 	// ReportDeviceStatus updates the reported status of the device from mapper.
 	ReportDeviceStatus(deviceID string, deviceName string, reportedDevice *v1alpha2.DeviceStatus) error
 
-	// PatchDevice patches the status of the device. it will be implemented later.
+	// PatchDeviceStatus patches the status of the device. it will be implemented later.
 	PatchDeviceStatus(deviceID string, deviceName string, desiredDevice *v1alpha2.DeviceStatus) error
 
 	// ListDevices lists all devices by filters.
@@ -93,18 +96,18 @@ type DeviceCommandManager interface {
 // DeviceEventManager contains methods for accessing to the device event
 type DeviceEventManager interface {
 
-	// GetEvent get the information of a event of a device
+	// GetDeviceEvent get the information of an event of a device
 	GetDeviceEvent(deviceID string, deviceName string, eventID string) (dmiapi.Event, error)
 
-	// ListEvent get the list of events of a device
+	// ListDeviceEvent get the list of events of a device
 	ListDeviceEvent(deviceID string, deviceName string, filter dmiapi.EventFilter) ([]dmiapi.Event, error)
 
-	// GetMapperEvent get the information of a event of a mapper
+	// GetMapperEvent get the information of an event of a mapper
 	GetMapperEvent(mapperName string) (dmiapi.Event, error)
 
 	// ListMapperEvent get the list of events of a mapper
 	ListMapperEvent(mapperName string, filter dmiapi.EventFilter) ([]dmiapi.Event, error)
 
-	// CreateEvent creates a event to system
-	CreateEvent(deviceID string, deviceName string, event dmiapi.Event)
+	// CreateEvent creates an event to system
+	CreateEvent(deviceID string, deviceName string, event dmiapi.Event) error
 }

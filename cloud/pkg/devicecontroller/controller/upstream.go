@@ -31,7 +31,7 @@ import (
 	"github.com/kubeedge/kubeedge/cloud/pkg/devicecontroller/constants"
 	"github.com/kubeedge/kubeedge/cloud/pkg/devicecontroller/messagelayer"
 	"github.com/kubeedge/kubeedge/cloud/pkg/devicecontroller/types"
-	commonconst "github.com/kubeedge/kubeedge/common/constants"
+	commonConst "github.com/kubeedge/kubeedge/common/constants"
 	"github.com/kubeedge/kubeedge/pkg/apis/devices/v1alpha2"
 	crdClientset "github.com/kubeedge/kubeedge/pkg/client/clientset/versioned"
 )
@@ -178,8 +178,8 @@ func (uc *UpstreamController) updateDeviceStatus() {
 				klog.Warningf("Message: %s process failure, build message resource failed with error: %s", msg.GetID(), err)
 				continue
 			}
-			resMsg.BuildRouter(modules.DeviceControllerModuleName, constants.GroupTwin, resource, model.ResponseOperation)
-			resMsg.Content = commonconst.MessageSuccessfulContent
+			resMsg.BuildRouter(modules.DeviceControllerModuleName, commonConst.ResourceGroupDeviceManager, resource, model.ResponseOperation)
+			resMsg.Content = commonConst.MessageSuccessfulContent
 			err = uc.messageLayer.Response(*resMsg)
 			if err != nil {
 				klog.Warningf("Message: %s process failure, response failed with error: %s", msg.GetID(), err)

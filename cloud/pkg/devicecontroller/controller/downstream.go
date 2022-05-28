@@ -34,11 +34,11 @@ import (
 	beehiveContext "github.com/kubeedge/beehive/pkg/core/context"
 	"github.com/kubeedge/beehive/pkg/core/model"
 	"github.com/kubeedge/kubeedge/cloud/pkg/common/client"
+	"github.com/kubeedge/kubeedge/cloud/pkg/common/messagelayer"
 	"github.com/kubeedge/kubeedge/cloud/pkg/common/modules"
-	"github.com/kubeedge/kubeedge/cloud/pkg/devicecontroller/constants"
 	"github.com/kubeedge/kubeedge/cloud/pkg/devicecontroller/manager"
-	"github.com/kubeedge/kubeedge/cloud/pkg/devicecontroller/messagelayer"
 	"github.com/kubeedge/kubeedge/cloud/pkg/devicecontroller/types"
+	commonConst "github.com/kubeedge/kubeedge/common/constants"
 	"github.com/kubeedge/kubeedge/pkg/apis/devices/v1alpha2"
 	crdinformers "github.com/kubeedge/kubeedge/pkg/client/informers/externalversions"
 )
@@ -49,13 +49,6 @@ const (
 	Modbus             = "modbus"
 	Bluetooth          = "bluetooth"
 	CustomizedProtocol = "customized-protocol"
-
-	DataTypeInt     = "int"
-	DataTypeString  = "string"
-	DataTypeDouble  = "double"
-	DataTypeFloat   = "float"
-	DataTypeBoolean = "boolean"
-	DataTypeBytes   = "bytes"
 
 	DeviceProfileConfigPrefix = "device-profile-config-"
 
@@ -261,36 +254,36 @@ func addDeviceModelAndVisitors(deviceModel *v1alpha2.DeviceModel, deviceProfile 
 		property.Description = ppt.Description
 		if ppt.Type.Int != nil {
 			property.AccessMode = string(ppt.Type.Int.AccessMode)
-			property.DataType = DataTypeInt
+			property.DataType = commonConst.DataTypeInt
 			property.DefaultValue = ppt.Type.Int.DefaultValue
 			property.Maximum = ppt.Type.Int.Maximum
 			property.Minimum = ppt.Type.Int.Minimum
 			property.Unit = ppt.Type.Int.Unit
 		} else if ppt.Type.String != nil {
 			property.AccessMode = string(ppt.Type.String.AccessMode)
-			property.DataType = DataTypeString
+			property.DataType = commonConst.DataTypeString
 			property.DefaultValue = ppt.Type.String.DefaultValue
 		} else if ppt.Type.Double != nil {
 			property.AccessMode = string(ppt.Type.Double.AccessMode)
-			property.DataType = DataTypeDouble
+			property.DataType = commonConst.DataTypeDouble
 			property.DefaultValue = ppt.Type.Double.DefaultValue
 			property.Maximum = ppt.Type.Double.Maximum
 			property.Minimum = ppt.Type.Double.Minimum
 			property.Unit = ppt.Type.Double.Unit
 		} else if ppt.Type.Float != nil {
 			property.AccessMode = string(ppt.Type.Float.AccessMode)
-			property.DataType = DataTypeFloat
+			property.DataType = commonConst.DataTypeFloat
 			property.DefaultValue = ppt.Type.Float.DefaultValue
 			property.Maximum = ppt.Type.Float.Maximum
 			property.Minimum = ppt.Type.Float.Minimum
 			property.Unit = ppt.Type.Float.Unit
 		} else if ppt.Type.Boolean != nil {
 			property.AccessMode = string(ppt.Type.Boolean.AccessMode)
-			property.DataType = DataTypeBoolean
+			property.DataType = commonConst.DataTypeBoolean
 			property.DefaultValue = ppt.Type.Boolean.DefaultValue
 		} else if ppt.Type.Bytes != nil {
 			property.AccessMode = string(ppt.Type.Bytes.AccessMode)
-			property.DataType = DataTypeBytes
+			property.DataType = commonConst.DataTypeBytes
 		}
 		model.Properties = append(model.Properties, property)
 	}
@@ -392,12 +385,12 @@ func (dc *DownstreamController) deviceAdded(device *v1alpha2.Device) {
 		edgeDevice := createDevice(device)
 		msg := model.NewMessage("")
 
-		resource, err := messagelayer.BuildResource(device.Spec.NodeSelector.NodeSelectorTerms[0].MatchExpressions[0].Values[0], "membership", "")
+		resource, err := messagelayer.BuildResourceForDevice(device.Spec.NodeSelector.NodeSelectorTerms[0].MatchExpressions[0].Values[0], "membership", "")
 		if err != nil {
 			klog.Warningf("Built message resource failed with error: %s", err)
 			return
 		}
-		msg.BuildRouter(modules.DeviceControllerModuleName, constants.GroupTwin, resource, model.UpdateOperation)
+		msg.BuildRouter(modules.DeviceControllerModuleName, commonConst.ResourceTypeDeviceManager, resource, model.UpdateOperation)
 
 		content := types.MembershipUpdate{AddDevices: []types.Device{
 			edgeDevice,
@@ -631,12 +624,12 @@ func (dc *DownstreamController) deviceUpdated(device *v1alpha2.Device) {
 					addDeletedTwins(cachedDevice.Status.Twins, device.Status.Twins, twin, device.ResourceVersion)
 					msg := model.NewMessage("")
 
-					resource, err := messagelayer.BuildResource(device.Spec.NodeSelector.NodeSelectorTerms[0].MatchExpressions[0].Values[0], "device/"+device.Name+"/twin/cloud_updated", "")
+					resource, err := messagelayer.BuildResourceForDevice(device.Spec.NodeSelector.NodeSelectorTerms[0].MatchExpressions[0].Values[0], "device/"+device.Name+"/twin/cloud_updated", "")
 					if err != nil {
 						klog.Warningf("Built message resource failed with error: %s", err)
 						return
 					}
-					msg.BuildRouter(modules.DeviceControllerModuleName, constants.GroupTwin, resource, model.UpdateOperation)
+					msg.BuildRouter(modules.DeviceControllerModuleName, commonConst.ResourceGroupDeviceManager, resource, model.UpdateOperation)
 					content := types.DeviceTwinUpdate{Twin: twin}
 					content.EventID = uuid.New().String()
 					content.Timestamp = time.Now().UnixNano() / 1e6
@@ -850,8 +843,8 @@ func (dc *DownstreamController) deviceDeleted(device *v1alpha2.Device) {
 	msg := model.NewMessage("")
 
 	if len(device.Spec.NodeSelector.NodeSelectorTerms) != 0 && len(device.Spec.NodeSelector.NodeSelectorTerms[0].MatchExpressions) != 0 && len(device.Spec.NodeSelector.NodeSelectorTerms[0].MatchExpressions[0].Values) != 0 {
-		resource, err := messagelayer.BuildResource(device.Spec.NodeSelector.NodeSelectorTerms[0].MatchExpressions[0].Values[0], "membership", "")
-		msg.BuildRouter(modules.DeviceControllerModuleName, constants.GroupTwin, resource, model.UpdateOperation)
+		resource, err := messagelayer.BuildResourceForDevice(device.Spec.NodeSelector.NodeSelectorTerms[0].MatchExpressions[0].Values[0], "membership", "")
+		msg.BuildRouter(modules.DeviceControllerModuleName, commonConst.ResourceGroupDeviceManager, resource, model.UpdateOperation)
 
 		content := types.MembershipUpdate{RemoveDevices: []types.Device{
 			edgeDevice,
@@ -902,7 +895,7 @@ func NewDownstreamController(crdInformerFactory crdinformers.SharedInformerFacto
 		kubeClient:         client.GetKubeClient(),
 		deviceManager:      deviceManager,
 		deviceModelManager: deviceModelManager,
-		messageLayer:       messagelayer.NewContextMessageLayer(),
+		messageLayer:       messagelayer.DeviceControllerMessageLayer(),
 		configMapManager:   manager.NewConfigMapManager(),
 	}
 	return dc, nil

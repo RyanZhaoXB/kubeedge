@@ -24,6 +24,8 @@ type EdgeHub struct {
 	reconnectChan chan struct{}
 	keeperLock    sync.RWMutex
 	enable        bool
+	// TODO complete register and call
+	deviceManager string
 }
 
 var _ core.Module = (*EdgeHub)(nil)

@@ -5,34 +5,30 @@ import (
 	"github.com/kubeedge/kubeedge/edge/pkg/common/modules"
 	"github.com/kubeedge/kubeedge/edge/pkg/devicemanager/config"
 	"github.com/kubeedge/kubeedge/edge/pkg/devicemanager/deviceservice"
-	"github.com/kubeedge/kubeedge/edge/pkg/devicemanager/utils/udsserver"
+	"github.com/kubeedge/kubeedge/edge/pkg/devicemanager/utils/httpserver"
 	"github.com/kubeedge/kubeedge/pkg/apis/componentconfig/edgecore/v1alpha1"
 
-	dmiapi "github.com/kubeedge/kubeedge/edge/pkg/dmi/apis/v1"
+	_ "github.com/kubeedge/kubeedge/edge/pkg/devicemanager/controller/mapper"
 )
 
-var MapperInfos map[string]*dmiapi.MapperInfo
+
 
 type DeviceManager struct {
 	enable   bool
-	sockPath string
-	rootPath string
 }
 
 var _ core.Module = (*DeviceManager)(nil)
 
-func newDeviceManager(enable bool, sockPath, rootPath string) *DeviceManager {
+func newDeviceManager(enable bool) *DeviceManager {
 	return &DeviceManager{
 		enable:   enable,
-		sockPath: sockPath,
-		rootPath: rootPath,
 	}
 }
 
 // Register register DeviceManager
-func Register(s *v1alpha1.DeviceManager, sockPath, rootPath string) {
+func Register(s *v1alpha1.DeviceManager) {
 	config.InitConfigure(s)
-	core.Register(newDeviceManager(s.Enable, sockPath, rootPath))
+	core.Register(newDeviceManager(s.Enable))
 }
 
 func (dm *DeviceManager) Name() string {
@@ -48,14 +44,13 @@ func (dm *DeviceManager) Enable() bool {
 }
 
 func (dm *DeviceManager) Start() {
-	MapperInfos = make(map[string] *dmiapi.MapperInfo)
 	dm.runDeviceManager()
 }
 
 func (dm *DeviceManager) runDeviceManager() {
 	//SockPath := "unix://root/data/test.sock"
-	//rootPath := "/v1/kubeedge"
+	rootPath := "/v1/kubeedge"
 	deviceServer := deviceservice.NewDeviceService()
-	deviceServer.InstallDefaultHandler(dm.rootPath)
-	go udsserver.StartServer(dm.sockPath, deviceServer.Container)
+	deviceServer.InstallDefaultHandler(rootPath)
+	go httpserver.StartServer(deviceServer.Container)
 }

@@ -1,16 +1,14 @@
-package udsclient
+package httpclient
 
 import (
 	"bytes"
-	"context"
-"crypto/tls"
+	"crypto/tls"
 	"fmt"
 	"io"
-"net"
-"net/http"
-"time"
+	"net/http"
+	"time"
 
-"k8s.io/klog/v2"
+	"k8s.io/klog/v2"
 )
 
 const (
@@ -18,7 +16,6 @@ const (
 	defaultKeepAliveTimeout          = 30 * time.Second
 	defaultResponseReadTimeout       = 300 * time.Second
 	defaultMaxIdleConnectionsPerHost = 3
-	SockPath                         = "/root/data/test.sock"
 )
 
 var (
@@ -29,14 +26,8 @@ var (
 )
 
 // NewHTTPClient create new client
-func NewHTTPClient(sockPath string) *http.Client {
+func NewHTTPClient() *http.Client {
 	transport := &http.Transport{
-		DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-			return (&net.Dialer{
-				Timeout:   connectTimeout,
-				KeepAlive: keepaliveTimeout,
-			}).Dial("unix", sockPath)
-		},
 		MaxIdleConnsPerHost:   maxIdleConnectionsPerHost,
 		ResponseHeaderTimeout: responseReadTimeout,
 		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true},
@@ -66,8 +57,8 @@ func BuildRequest(method string, urlStr string, body io.Reader) (*http.Request, 
 	return req, nil
 }
 
-func HttpRequest(url, method string, body []byte) ([]byte, error){
-	client := NewHTTPClient(SockPath)
+func HttpRequest(url, method string, body []byte) ([]byte, error) {
+	client := NewHTTPClient()
 	req, err := BuildRequest(method, url, bytes.NewBuffer(body))
 	if err != nil {
 		klog.Errorf("fail to build request with error : %+v", err)

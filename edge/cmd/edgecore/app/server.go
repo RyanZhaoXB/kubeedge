@@ -167,10 +167,8 @@ func environmentCheck() error {
 
 // registerModules register all the modules started in edgecore
 func registerModules(c *v1alpha1.EdgeCoreConfig) {
-	sockPath := "unix://root/data/test.sock"
-	rootPath := "/v1/kubeedge"
 	devicetwin.Register(c.Modules.DeviceTwin, c.Modules.Edged.HostnameOverride)
-	devicemanager.Register(c.Modules.DeviceManager, sockPath, rootPath)
+	devicemanager.Register(c.Modules.DeviceManager)
 	edged.Register(c.Modules.Edged)
 	edgehub.Register(c.Modules.EdgeHub, c.Modules.Edged.HostnameOverride)
 	eventbus.Register(c.Modules.EventBus, c.Modules.Edged.HostnameOverride)

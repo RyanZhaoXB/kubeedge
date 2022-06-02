@@ -8,7 +8,6 @@ import (
 	"github.com/emicklei/go-restful"
 	"k8s.io/klog/v2"
 
-	"github.com/kubeedge/kubeedge/edge/pkg/devicemanager"
 	"github.com/kubeedge/kubeedge/edge/pkg/devicemanager/utils"
 	dmiapi "github.com/kubeedge/kubeedge/edge/pkg/dmi/apis/v1"
 )
@@ -41,7 +40,7 @@ func (mc MapperController) RegisterMapper(r *restful.Request, w *restful.Respons
 		klog.Errorf("Failed to register mapper with err: %v", err)
 		return
 	}
-	klog.Infof("mapper: %+v", devicemanager.MapperInfos)
+	klog.Infof("mapper: %+v", MapperInfos)
 	utils.WriteHttpResp(w, http.StatusOK, "success to register mapper")
 	return
 }

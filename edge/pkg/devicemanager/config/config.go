@@ -9,6 +9,9 @@ import (
 var config Configure
 var once sync.Once
 
+const Address string = "http://127.0.0.1"
+const Port string = "10006"
+
 type Configure struct {
 	v1alpha1.DeviceManager
 }

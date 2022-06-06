@@ -2,11 +2,12 @@ package mapper
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"k8s.io/klog/v2"
 
-	"github.com/kubeedge/kubeedge/edge/pkg/devicemanager/utils/udsclient"
+	"github.com/kubeedge/kubeedge/edge/pkg/devicemanager/utils/httpclient"
 	dmiapi "github.com/kubeedge/kubeedge/edge/pkg/dmi/apis/v1"
 )
 
@@ -32,8 +33,14 @@ func (ms MapperService) MapperRegister(mapper *dmiapi.MapperInfo) error {
 
 func (ms MapperService) GetMapper(mapperName string) (*dmiapi.MapperInfo, error) {
 	//TODO: get mapper through uds
-	url := "http://test.sock/v1/kubeedge/mapper/" + mapperName
-	data, err := udsclient.HttpRequest(url, http.MethodGet, nil)
+	url, ok := MapperInfos[mapperName].Address.(string)
+	if !ok {
+		err := fmt.Errorf("fail to get mapper address with name: %s", mapperName)
+		klog.Errorf("fail to get mapper info with error : %+v", err)
+		return nil, err
+	}
+	//url := "http://test.sock/v1/kubeedge/mapper/" + mapperName
+	data, err := httpclient.HttpRequest(url, http.MethodGet, nil)
 	if err != nil {
 		klog.Errorf("fail to get mapper info with error : %+v", err)
 		return nil, err
@@ -50,8 +57,15 @@ func (ms MapperService) GetMapper(mapperName string) (*dmiapi.MapperInfo, error)
 
 func (ms MapperService) HealthCheck(mapperName string) (string, error) {
 	//TODO: healthcheck mapper through uds
-	url := "http://test.sock/v1/kubeedge/mapper/" + mapperName + "/health"
-	data, err := udsclient.HttpRequest(url, http.MethodGet, nil)
+	url, ok := MapperInfos[mapperName].Address.(string)
+	if !ok {
+		err := fmt.Errorf("fail to get mapper address with name: %s", mapperName)
+		klog.Errorf("fail to get mapper healthcheck with error : %+v", err)
+		return "", err
+	}
+	url = url + "/health"
+	//url := "http://test.sock/v1/kubeedge/mapper/" + mapperName + "/health"
+	data, err := httpclient.HttpRequest(url, http.MethodGet, nil)
 	if err != nil {
 		klog.Errorf("fail to get mapper healthcheck with error : %+v", err)
 		return "", err

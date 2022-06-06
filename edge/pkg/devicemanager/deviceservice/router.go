@@ -11,7 +11,6 @@ func (ds *DeviceService) registerRoutes(ws *restful.WebService) {
 	ws.Route(ws.POST("/mapper/register").To(mapper.NewMapperController.RegisterMapper))
 	ws.Route(ws.GET("/mapper/{mapper_name}").To(mapper.NewMapperController.GetMapper))
 	ws.Route(ws.GET("/mapper/{mapper_name}/healthcheck").To(mapper.NewMapperController.MapperHealthCheck))
-	ws.Route(ws.POST("/mapper/{mapper_name}/status").To(mapper.NewMapperController.MapperHealthCheck))
 }
 
 func (ds *DeviceService) connect(r *restful.Request, w *restful.Response) {

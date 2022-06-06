@@ -15,7 +15,7 @@ func StartServer(container *restful.Container) {
 		Addr: net.JoinHostPort(config.Address, config.Port),
 		Handler: container,
 	}
-	if err := server.ListenAndServeTLS("", ""); err != nil {
+	if err := server.ListenAndServe(); err != nil {
 		klog.Exitf("failed to start device manager server: %v", err)
 		return
 	}

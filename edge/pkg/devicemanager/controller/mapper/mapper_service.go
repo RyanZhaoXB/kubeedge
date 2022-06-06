@@ -40,6 +40,7 @@ func (ms MapperService) GetMapper(mapperName string) (*dmiapi.MapperInfo, error)
 		return nil, err
 	}
 	//url := "http://test.sock/v1/kubeedge/mapper/" + mapperName
+	url = url + "/info"
 	data, err := httpclient.HttpRequest(url, http.MethodGet, nil)
 	if err != nil {
 		klog.Errorf("fail to get mapper info with error : %+v", err)

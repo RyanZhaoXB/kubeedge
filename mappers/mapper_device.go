@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,8 +15,8 @@ import (
 	"k8s.io/utils/pointer"
 
 	"github.com/kubeedge/kubeedge/common/constants"
-	messagepkg "github.com/kubeedge/kubeedge/edge/pkg/common/message"
-	"github.com/kubeedge/kubeedge/edge/pkg/common/modules"
+	"github.com/kubeedge/kubeedge/edge/pkg/devicemanager/controller/mapper"
+	"github.com/kubeedge/kubeedge/edge/pkg/devicemanager/utils/httpclient"
 	dmiapi "github.com/kubeedge/kubeedge/edge/pkg/dmi/apis/v1"
 	"github.com/kubeedge/kubeedge/mappers/common"
 	"github.com/kubeedge/kubeedge/mappers/dtclient"
@@ -144,11 +145,24 @@ func (d *DeviceTwinShim) CreateDevice(config *dmiapi.DeviceConfig) (string, erro
 		if err != nil {
 			klog.Errorf("CreateDevice build device attribute update failed: %v", err)
 		}
-		topic := dtcommon.DeviceETPrefix + device.Name + dtcommon.DeviceETUpdatedSuffix
-		d.send(device.Name,
-			dtcommon.SendToEdge,
-			dtcommon.CommModule,
-			d.buildModelMessage(modules.BusGroup, "", topic, messagepkg.OperationPublish, payload))
+
+		//TODO:获取设备协议名称，进而获取mapper信息
+		url, err := findOneMapperAddress()
+		if err != nil {
+			klog.Errorf("fail to create device with error : %+v", err)
+			return "", err
+		}
+		url = url + "/create"
+		_, err = httpclient.HttpRequest(url, http.MethodPost, payload)
+		if err != nil {
+			klog.Errorf("fail to create device with error : %+v", err)
+			return "", err
+		}
+
+		//d.send(device.Name,
+		//	dtcommon.SendToEdge,
+		//	dtcommon.CommModule,
+		//	d.buildModelMessage(modules.BusGroup, "", topic, messagepkg.OperationPublish, payload))
 	}
 
 	// because the twin and attr of the device are updated, saved this device again
@@ -157,17 +171,29 @@ func (d *DeviceTwinShim) CreateDevice(config *dmiapi.DeviceConfig) (string, erro
 	// TODO save device to meta
 
 	// publish device to mqtt
-	topic := dtcommon.MemETPrefix + d.NodeName + dtcommon.MemETUpdateSuffix
 	baseMessage := dttype.BuildBaseMessage()
 	addDeviceResult := dttype.MembershipUpdate{BaseMessage: baseMessage, AddDevices: []dttype.Device{*typeDevice}}
 	result, err := dttype.MarshalMembershipUpdate(addDeviceResult)
 	if err != nil {
 		return "", fmt.Errorf("add device %s failed, marshal membership err: %s", device.Name, err)
 	}
-	d.send("",
-		dtcommon.SendToEdge,
-		dtcommon.CommModule,
-		d.buildModelMessage(modules.BusGroup, "", topic, messagepkg.OperationPublish, result))
+
+	url, err := findOneMapperAddress()
+	if err != nil {
+		klog.Errorf("fail to create device with error : %+v", err)
+		return "", err
+	}
+	url = url + "/create"
+	_, err = httpclient.HttpRequest(url, http.MethodPost, result)
+	if err != nil {
+		klog.Errorf("fail to create device with error : %+v", err)
+		return "", err
+	}
+
+	//d.send("",
+	//	dtcommon.SendToEdge,
+	//	dtcommon.CommModule,
+	//	d.buildModelMessage(modules.BusGroup, "", topic, messagepkg.OperationPublish, result))
 	return device.Name, nil
 }
 
@@ -268,9 +294,21 @@ func (d *DeviceTwinShim) UpdateDevice(deviceID string, config *dmiapi.DeviceConf
 			if err != nil {
 				return fmt.Errorf("build device %s attribute update failed: %v", deviceID, err)
 			}
-			topic := dtcommon.DeviceETPrefix + deviceID + dtcommon.DeviceETUpdatedSuffix
-			d.send(deviceID, dtcommon.SendToEdge, dtcommon.CommModule,
-				d.buildModelMessage(modules.BusGroup, "", topic, messagepkg.OperationPublish, payload))
+
+			url, err := findOneMapperAddress()
+			if err != nil {
+				klog.Errorf("fail to update device with error : %+v", err)
+				return err
+			}
+
+			url = url + "/update"
+			_, err = httpclient.HttpRequest(url, http.MethodPut, payload)
+			if err != nil {
+				klog.Errorf("fail to update device with error : %+v", err)
+				return err
+			}
+			//d.send(deviceID, dtcommon.SendToEdge, dtcommon.CommModule,
+			//	d.buildModelMessage(modules.BusGroup, "", topic, messagepkg.OperationPublish, payload))
 		}
 	}
 
@@ -300,17 +338,29 @@ func (d *DeviceTwinShim) RemoveDevice(deviceID string, deviceName string) error 
 	// TODO delete from meta
 
 	// send delete operation to mqtt
-	topic := dtcommon.MemETPrefix + d.NodeName + dtcommon.MemETUpdateSuffix
 	baseMessage := dttype.BuildBaseMessage()
 	deleteResult := dttype.MembershipUpdate{BaseMessage: baseMessage, RemoveDevices: []dttype.Device{*device}}
 	result, err := dttype.MarshalMembershipUpdate(deleteResult)
 	if err != nil {
 		klog.Errorf("Remove device %s failed, marshal membership err: %s", device.ID, err)
 	}
-	d.send("",
-		dtcommon.SendToEdge,
-		dtcommon.CommModule,
-		d.buildModelMessage(modules.BusGroup, "", topic, messagepkg.OperationPublish, result))
+
+	url, err := findOneMapperAddress()
+	if err != nil {
+		klog.Errorf("fail to remove device %s with error : %+v", device.Name, err)
+		return err
+	}
+
+	url = url + "/device/" + deviceID + "/remove"
+	_, err = httpclient.HttpRequest(url, http.MethodDelete, result)
+	if err != nil {
+		klog.Errorf("fail to remove device with error : %+v", err)
+		return err
+	}
+	//d.send("",
+	//	dtcommon.SendToEdge,
+	//	dtcommon.CommModule,
+	//	d.buildModelMessage(modules.BusGroup, "", topic, messagepkg.OperationPublish, result))
 	klog.Infof("Remove device %s successful", device.ID)
 	return nil
 }
@@ -363,17 +413,30 @@ func (d *DeviceTwinShim) UpdateDeviceStatus(deviceID string, deviceName string, 
 
 	// publish device to mqtt
 	// TODO if desiredDevice twin different to src twin, such as an extra columnA, missing columnB, update columnC, does result need to add missing columnB?
-	topic := dtcommon.MemETPrefix + d.NodeName + dtcommon.MemETUpdateSuffix
 	baseMessage := dttype.BuildBaseMessage()
 	addDeviceResult := dttype.MembershipUpdate{BaseMessage: baseMessage, AddDevices: []dttype.Device{*device}}
 	result, err := dttype.MarshalMembershipUpdate(addDeviceResult)
 	if err != nil {
 		return fmt.Errorf("update device status %s failed, marshal membership err: %s", device.ID, err)
 	}
-	d.send("",
-		dtcommon.SendToEdge,
-		dtcommon.CommModule,
-		d.buildModelMessage(modules.BusGroup, "", topic, messagepkg.OperationPublish, result))
+
+	url, err := findOneMapperAddress()
+	if err != nil {
+		klog.Errorf("fail to update device %s status with error : %+v", device.Name, err)
+		return err
+	}
+
+	url = url + "/device/" + deviceID + "/updatestatus"
+	_, err = httpclient.HttpRequest(url, http.MethodPut, result)
+	if err != nil {
+		klog.Errorf("fail to update device status with error : %+v", err)
+		return err
+	}
+
+	//d.send("",
+	//	dtcommon.SendToEdge,
+	//	dtcommon.CommModule,
+	//	d.buildModelMessage(modules.BusGroup, "", topic, messagepkg.OperationPublish, result))
 	return nil
 }
 
@@ -400,10 +463,23 @@ func (d *DeviceTwinShim) ReportDeviceStatus(deviceID string, deviceName string, 
 	if err != nil {
 		return fmt.Errorf("report device status %s failed, marshal device status err: %s", device.ID, err)
 	}
-	d.send("",
-		dtcommon.SendToEdge,
-		dtcommon.CommModule,
-		d.buildModelMessage(constants.ResourceGroupDeviceManager, "", "report_status", messagepkg.OperationResponse, result))
+
+	url, err := findOneMapperAddress()
+	if err != nil {
+		klog.Errorf("fail to report device %s with error : %+v", device.Name, err)
+		return err
+	}
+	url = url + "/device/" + deviceID + "/report"
+	_, err = httpclient.HttpRequest(url, http.MethodGet, result)
+	if err != nil {
+		klog.Errorf("fail to report device %s with error : %+v", device.Name, err)
+		return err
+	}
+
+	//d.send("",
+	//	dtcommon.SendToEdge,
+	//	dtcommon.CommModule,
+	//	d.buildModelMessage(constants.ResourceGroupDeviceManager, "", "report_status", messagepkg.OperationResponse, result))
 	return nil
 }
 
@@ -444,17 +520,28 @@ func (d *DeviceTwinShim) PatchDeviceStatus(deviceID string, deviceName string, d
 
 	// publish device to mqtt
 	// TODO twinUpdateResult result have not set
-	topic := dtcommon.MemETPrefix + d.NodeName + dtcommon.MemETUpdateSuffix
 	baseMessage := dttype.BuildBaseMessage()
 	addDeviceResult := dttype.MembershipUpdate{BaseMessage: baseMessage, AddDevices: []dttype.Device{*device}}
 	result, err := dttype.MarshalMembershipUpdate(addDeviceResult)
 	if err != nil {
 		return fmt.Errorf("patch device status %s failed, marshal membership err: %s", device.ID, err)
 	}
-	d.send("",
-		dtcommon.SendToEdge,
-		dtcommon.CommModule,
-		d.buildModelMessage(modules.BusGroup, "", topic, messagepkg.OperationPublish, result))
+
+	url, err := findOneMapperAddress()
+	if err != nil {
+		klog.Errorf("fail to patch device %s with error : %+v", device.Name, err)
+		return err
+	}
+	url = url + "/device/" + deviceID + "/patch"
+	_, err = httpclient.HttpRequest(url, http.MethodPatch, result)
+	if err != nil {
+		klog.Errorf("fail to patch device %s with error : %+v", device.Name, err)
+		return err
+	}
+	//d.send("",
+	//	dtcommon.SendToEdge,
+	//	dtcommon.CommModule,
+	//	d.buildModelMessage(modules.BusGroup, "", topic, messagepkg.OperationPublish, result))
 	return nil
 }
 
@@ -476,12 +563,23 @@ func (d *DeviceTwinShim) GetDevice(deviceID string, deviceName string) (*v1alpha
 	if !ok {
 		return nil, fmt.Errorf("get device %s failed, build device twin delta failed", device.ID)
 	}
-	topic := dtcommon.DeviceETPrefix + deviceID + dtcommon.TwinETDeltaSuffix
 	klog.Infof("get device %s: send delta", deviceID)
-	d.send("",
-		dtcommon.SendToEdge,
-		dtcommon.CommModule,
-		d.buildModelMessage(modules.BusGroup, "", topic, messagepkg.OperationPublish, twinDelta))
+
+	url, err := findOneMapperAddress()
+	if err != nil {
+		klog.Errorf("fail to get device %s with error : %+v", device.Name, err)
+		return nil, err
+	}
+	url = url + "/device/" + deviceID + "/twins"
+	_, err = httpclient.HttpRequest(url, http.MethodGet, twinDelta)
+	if err != nil {
+		klog.Errorf("fail to get device %s with error : %+v", device.Name, err)
+		return nil, err
+	}
+	//d.send("",
+	//	dtcommon.SendToEdge,
+	//	dtcommon.CommModule,
+	//	d.buildModelMessage(modules.BusGroup, "", topic, messagepkg.OperationPublish, twinDelta))
 
 	// TODO maybe another way?
 	// wait for response
@@ -975,4 +1073,31 @@ func dealAttrUpdate(deviceID string, srcAttrs, msgAttrs map[string]*dttype.MsgAt
 
 	}
 	return dttype.DealAttrResult{Add: add, Delete: deletes, Update: update, Result: result, Err: nil}
+}
+
+func findMapperAddress(protocol string) (string, error) {
+	for _, mapper := range mapper.MapperInfos {
+		if mapper.Protocol == protocol {
+			address, ok := mapper.Address.(string)
+			if !ok {
+				return "", fmt.Errorf("fail to get mapper %s address with protocol: %s", mapper.Name, protocol)
+			}
+			return address, nil
+		}
+	}
+	return "", fmt.Errorf("fail to find mapper with protocol %s", protocol)
+}
+
+func findOneMapperAddress() (string, error) {
+	if len(mapper.MapperInfos) != 0 {
+		// get the first mapper in the list
+		for _, m := range mapper.MapperInfos {
+			address, ok := m.Address.(string)
+			if !ok {
+				return "", fmt.Errorf("fail to get mapper address because it is not string type")
+			}
+			return address, nil
+		}
+	}
+	return "", fmt.Errorf("fail to get mapper address because the mapper list is empty")
 }

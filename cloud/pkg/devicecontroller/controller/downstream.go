@@ -19,11 +19,13 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strconv"
 	"time"
 
 	"github.com/google/uuid"
+	appv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -157,6 +159,105 @@ func (dc *DownstreamController) syncDevice() {
 				klog.Warningf("Device event type: %s unsupported", e.Type)
 			}
 		}
+	}
+}
+
+// addDeviceMapper is function to add deviceMapper deployment
+func (dc *DownstreamController) addDeviceMapper(device *v1alpha2.Device, nodename string) {
+	protocol, err := getProtocolNameOfDevice(device)
+	if err != nil {
+		klog.Errorf("fail to get the protocol name of device %s with err: %v", device.Name, err)
+		return
+	}
+
+	mapperName := fmt.Sprintf("mapper-%s-%s", nodename, protocol)
+	dep, err := dc.kubeClient.AppsV1().Deployments(device.Namespace).Get(context.Background(), mapperName, metav1.GetOptions{})
+	if err != nil && !apierrors.IsNotFound(err) {
+		klog.Errorf("Failed to get mapper deployment %s in namespace %s, error %v", mapperName, device.Namespace, err)
+		return
+	}
+
+	if dep != nil {
+		klog.Infof("the mapper deployment %s has existed on the node %s. do not need to create one.", mapperName, nodename)
+		return
+	}
+
+	image, err := getImageOfDevice(device)
+	if err != nil {
+		klog.Errorf("fail to get the image of device mapper %s with err: %v", device.Name, err)
+		return
+	}
+
+	mdp := generateMapperDeployment(mapperName, device.Namespace, nodename, image)
+	if _, err := dc.kubeClient.AppsV1().Deployments(device.Namespace).Create(context.Background(), &mdp, metav1.CreateOptions{}); err != nil {
+		klog.Errorf("Failed to create mapper deployment %s in namespace %v, error %v", mapperName, device.Namespace, err)
+		return
+	}
+	return
+}
+
+func getProtocolNameOfDevice(device *v1alpha2.Device) (string, error) {
+	protocol := device.Spec.Protocol
+	if protocol.OpcUA != nil {
+		return "opcua", nil
+	}
+	if protocol.Modbus != nil {
+		return "modbus", nil
+	}
+	if protocol.Bluetooth != nil {
+		return "bluetooth", nil
+	}
+	if protocol.CustomizedProtocol != nil {
+		return protocol.CustomizedProtocol.ProtocolName, nil
+	}
+	return "", fmt.Errorf("cannot find protocol name for device %s", device.Name)
+}
+
+func getImageOfDevice(device *v1alpha2.Device) (string, error) {
+	if device.Annotations == nil {
+		return "", fmt.Errorf("device annotattion is empty")
+	}
+	image, ok := device.Annotations["image"]
+	if !ok {
+		return "", fmt.Errorf("device image is empty in annotattion")
+	}
+	return image, nil
+}
+
+func generateMapperDeployment(mapperName, namespace, nodeName, mapperImage string) appv1.Deployment {
+	appLabelInfo := map[string]string{
+		"app": mapperName,
+	}
+	nodeSelectorList := make(map[string]string)
+	nodeSelectorList["node-role.kubernetes.io/edge"] = ""
+	nodeSelectorList["kubernetes.io/hostname"] = nodeName
+	return appv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      mapperName,
+			Namespace: namespace,
+			Labels:    appLabelInfo,
+		},
+		Spec: appv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{
+				MatchLabels: appLabelInfo,
+			},
+			Template: v1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: appLabelInfo,
+				},
+				Spec: v1.PodSpec{
+					RestartPolicy: v1.RestartPolicyAlways,
+					NodeSelector:  nodeSelectorList,
+					Containers: []v1.Container{
+						{
+							Name:            mapperName,
+							Image:           mapperImage,
+							ImagePullPolicy: v1.PullAlways,
+						},
+					},
+				},
+			},
+		},
 	}
 }
 
@@ -382,6 +483,7 @@ func (dc *DownstreamController) deviceAdded(device *v1alpha2.Device) {
 	dc.deviceManager.Device.Store(device.Name, device)
 	if len(device.Spec.NodeSelector.NodeSelectorTerms) != 0 && len(device.Spec.NodeSelector.NodeSelectorTerms[0].MatchExpressions) != 0 && len(device.Spec.NodeSelector.NodeSelectorTerms[0].MatchExpressions[0].Values) != 0 {
 		dc.addToConfigMap(device)
+		dc.addDeviceMapper(device, device.Spec.NodeSelector.NodeSelectorTerms[0].MatchExpressions[0].Values[0])
 		edgeDevice := createDevice(device)
 		msg := model.NewMessage("")
 

@@ -32,10 +32,10 @@ func (d *DeviceTwinShim) Name() string {
 }
 
 // getMutex get mutex
-func (d *DeviceTwinShim) getMutex(deviceID string) (*sync.Mutex, bool) {
-	v, mutexExist := d.deviceMutex.Load(deviceID)
+func (d *DeviceTwinShim) getMutex(deviceName string) (*sync.Mutex, bool) {
+	v, mutexExist := d.deviceMutex.Load(deviceName)
 	if !mutexExist {
-		klog.Errorf("getMutex device %s not exist", deviceID)
+		klog.Errorf("getMutex device %s not exist", deviceName)
 		return nil, false
 	}
 	mutex, isMutex := v.(*sync.Mutex)
@@ -46,8 +46,8 @@ func (d *DeviceTwinShim) getMutex(deviceID string) (*sync.Mutex, bool) {
 }
 
 // lock the device
-func (d *DeviceTwinShim) lock(deviceID string) bool {
-	deviceMutex, ok := d.getMutex(deviceID)
+func (d *DeviceTwinShim) lock(deviceName string) bool {
+	deviceMutex, ok := d.getMutex(deviceName)
 	if ok {
 		d.mutex.RLock()
 		deviceMutex.Lock()
@@ -57,8 +57,8 @@ func (d *DeviceTwinShim) lock(deviceID string) bool {
 }
 
 // unlock remove the lock of the device
-func (d *DeviceTwinShim) unlock(deviceID string) bool {
-	deviceMutex, ok := d.getMutex(deviceID)
+func (d *DeviceTwinShim) unlock(deviceName string) bool {
+	deviceMutex, ok := d.getMutex(deviceName)
 	if ok {
 		deviceMutex.Unlock()
 		d.mutex.RUnlock()
@@ -78,14 +78,14 @@ func (d *DeviceTwinShim) unlockAll() {
 }
 
 // isDeviceExist judge device is exists
-func (d *DeviceTwinShim) isDeviceExist(deviceID string) bool {
-	_, ok := d.deviceList.Load(deviceID)
+func (d *DeviceTwinShim) isDeviceExist(deviceName string) bool {
+	_, ok := d.deviceList.Load(deviceName)
 	return ok
 }
 
 // getDeviceInstance get device
-func (d *DeviceTwinShim) getDeviceInstance(deviceID string) (*dttype.Device, bool) {
-	device, ok := d.deviceList.Load(deviceID)
+func (d *DeviceTwinShim) getDeviceInstance(deviceName string) (*dttype.Device, bool) {
+	device, ok := d.deviceList.Load(deviceName)
 	if ok {
 		if device, isDevice := device.(*dttype.Device); isDevice {
 			return device, true
@@ -96,15 +96,15 @@ func (d *DeviceTwinShim) getDeviceInstance(deviceID string) (*dttype.Device, boo
 }
 
 // syncDeviceFromSqlite sync device from sqlite
-func (d *DeviceTwinShim) syncDeviceFromSqlite(deviceID string) error {
-	klog.V(2).Infof("Sync device detail info from DB of device %s", deviceID)
-	if _, exist := d.getDeviceInstance(deviceID); !exist {
-		d.deviceMutex.Store(deviceID, &sync.Mutex{})
+func (d *DeviceTwinShim) syncDeviceFromSqlite(deviceName string) error {
+	klog.V(2).Infof("Sync device detail info from DB of device %s", deviceName)
+	if _, exist := d.getDeviceInstance(deviceName); !exist {
+		d.deviceMutex.Store(deviceName, &sync.Mutex{})
 	}
 
-	devices, err := dtclient.QueryDevice("id", deviceID)
+	devices, err := dtclient.QueryDevice("name", deviceName)
 	if err != nil {
-		klog.Errorf("query device failed, id: %s, err: %v", deviceID, err)
+		klog.Errorf("query device failed, name: %s, err: %v", deviceName, err)
 		return err
 	}
 	if len(*devices) == 0 {
@@ -112,20 +112,20 @@ func (d *DeviceTwinShim) syncDeviceFromSqlite(deviceID string) error {
 	}
 	device := (*devices)[0]
 
-	deviceAttr, err := dtclient.QueryDeviceAttr("deviceid", deviceID)
+	deviceAttr, err := dtclient.QueryDeviceAttr("name", deviceName)
 	if err != nil {
-		klog.Errorf("query device attr failed, id: %s, err: %v", deviceID, err)
+		klog.Errorf("query device attr failed, name: %s, err: %v", deviceName, err)
 		return err
 	}
 
-	deviceTwin, err := dtclient.QueryDeviceTwin("deviceid", deviceID)
+	deviceTwin, err := dtclient.QueryDeviceTwin("name", deviceName)
 	if err != nil {
-		klog.Errorf("query device twin failed, id: %s, err: %v", deviceID, err)
+		klog.Errorf("query device twin failed, name: %s, err: %v", deviceName, err)
 		return err
 	}
 
-	d.deviceList.Store(deviceID, &dttype.Device{
-		ID:          deviceID,
+	d.deviceList.Store(deviceName, &dttype.Device{
+		ID:          device.ID,
 		Name:        device.Name,
 		Description: device.Description,
 		State:       device.State,

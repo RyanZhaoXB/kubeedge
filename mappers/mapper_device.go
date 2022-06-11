@@ -197,12 +197,12 @@ func (d *DeviceTwinShim) CreateDevice(config *dmiapi.DeviceConfig) (string, erro
 	return device.Name, nil
 }
 
-func (d *DeviceTwinShim) UpdateDevice(deviceID string, config *dmiapi.DeviceConfig) error {
+func (d *DeviceTwinShim) UpdateDevice(deviceName string, config *dmiapi.DeviceConfig) error {
 	klog.V(2).Info("UpdateDevice")
 	var err error
-	srcDeviceInstance, exists := d.getDeviceInstance(deviceID)
+	srcDeviceInstance, exists := d.getDeviceInstance(deviceName)
 	if !exists {
-		return fmt.Errorf("update device %s failed, not exists", deviceID)
+		return fmt.Errorf("update device %s failed, not exists", deviceName)
 	}
 
 	device := config.Device
@@ -227,19 +227,19 @@ func (d *DeviceTwinShim) UpdateDevice(deviceID string, config *dmiapi.DeviceConf
 	}
 
 	// get device by id from sqlite
-	devices, err := dtclient.QueryDevice("id", deviceID)
+	devices, err := dtclient.QueryDevice("name", deviceName)
 	if err != nil {
 		klog.Errorf("query device failed: %v", err)
 		return err
 	}
 	if len(*devices) <= 0 {
-		return fmt.Errorf("not found device %s from db", deviceID)
+		return fmt.Errorf("not found device %s from db", deviceName)
 	}
 	srcDevice := (*devices)[0]
 
 	srcDeviceUpdateMap := make(map[string]interface{})
 	if device.Name != srcDeviceInstance.Name {
-		klog.Warningf("update device name is unsupported, continue. from %s to %s", deviceID, device.Name)
+		klog.Warningf("update device name is unsupported, continue. from %s to %s", deviceName, device.Name)
 	}
 	// deal description
 	srcDeviceInstance.Description = device.Labels["description"]
@@ -252,8 +252,8 @@ func (d *DeviceTwinShim) UpdateDevice(deviceID string, config *dmiapi.DeviceConf
 	}
 
 	// update srcDevice to sqlite
-	if err = dtclient.UpdateDeviceFields(deviceID, srcDeviceUpdateMap); err != nil {
-		d.syncDeviceFromSqlite(deviceID)
+	if err = dtclient.UpdateDeviceFields(deviceName, srcDeviceUpdateMap); err != nil {
+		d.syncDeviceFromSqlite(deviceName)
 		return fmt.Errorf("update device failed due to writing sql error: %v", err)
 	}
 
@@ -263,14 +263,14 @@ func (d *DeviceTwinShim) UpdateDevice(deviceID string, config *dmiapi.DeviceConf
 	// merge srcDeviceInstance and model attr by dealAttrUpdate
 	attrs := buildMsgAttrs(model)
 	srcAttrs := srcDeviceInstance.Attributes
-	dealAttrResult := dealAttrUpdate(deviceID, srcAttrs, attrs)
+	dealAttrResult := dealAttrUpdate(deviceName, srcAttrs, attrs)
 	if dealAttrResult.Err != nil {
 		return err
 	}
 
 	// save cache
 	srcDeviceInstance.Attributes = srcAttrs
-	d.deviceList.Store(deviceID, srcDeviceInstance)
+	d.deviceList.Store(deviceName, srcDeviceInstance)
 
 	// save attr to sqlite and publish attrs to mqtt
 	add, deletes, update, result := dealAttrResult.Add, dealAttrResult.Delete, dealAttrResult.Update, dealAttrResult.Result
@@ -286,13 +286,13 @@ func (d *DeviceTwinShim) UpdateDevice(deviceID string, config *dmiapi.DeviceConf
 		baseMessage.Timestamp = time.Now().UnixNano() / 1e6
 
 		if err != nil {
-			d.syncDeviceFromSqlite(deviceID)
+			d.syncDeviceFromSqlite(deviceName)
 			return fmt.Errorf("update device failed due to writing sql error: %v", err)
 		} else {
-			klog.Infof("send update attributes of device %s event to edge app", deviceID)
+			klog.Infof("send update attributes of device %s event to edge app", deviceName)
 			payload, err := dttype.BuildDeviceAttrUpdate(baseMessage, result)
 			if err != nil {
-				return fmt.Errorf("build device %s attribute update failed: %v", deviceID, err)
+				return fmt.Errorf("build device %s attribute update failed: %v", deviceName, err)
 			}
 
 			url, err := findOneMapperAddress()
@@ -315,25 +315,25 @@ func (d *DeviceTwinShim) UpdateDevice(deviceID string, config *dmiapi.DeviceConf
 	return nil
 }
 
-func (d *DeviceTwinShim) RemoveDevice(deviceID string, deviceName string) error {
+func (d *DeviceTwinShim) RemoveDevice(deviceName string) error {
 	klog.V(2).Info("RemoveDevice")
-	device, exists := d.getDeviceInstance(deviceID)
+	device, exists := d.getDeviceInstance(deviceName)
 	if !exists {
-		return fmt.Errorf("remove device %s failed, not exists", deviceID)
+		return fmt.Errorf("remove device %s failed, not exists", deviceName)
 	}
 	// delete from sqlite
 	for i := 1; i <= dtcommon.RetryTimes; i++ {
-		err := dtclient.DeleteDeviceTrans([]string{device.ID})
+		err := dtclient.DeleteDeviceTrans([]string{device.Name})
 		if err != nil {
-			klog.Errorf("Delete document of device %s failed at %d time, err: %#v", device.ID, i, err)
+			klog.Errorf("Delete document of device %s failed at %d time, err: %#v", device.Name, i, err)
 		} else {
-			klog.Infof("Delete document of device %s successful", device.ID)
+			klog.Infof("Delete document of device %s successful", device.Name)
 			break
 		}
 		time.Sleep(dtcommon.RetryInterval)
 	}
-	d.deviceList.Delete(deviceID)
-	d.deviceMutex.Delete(deviceID)
+	d.deviceList.Delete(deviceName)
+	d.deviceMutex.Delete(deviceName)
 
 	// TODO delete from meta
 
@@ -342,7 +342,7 @@ func (d *DeviceTwinShim) RemoveDevice(deviceID string, deviceName string) error 
 	deleteResult := dttype.MembershipUpdate{BaseMessage: baseMessage, RemoveDevices: []dttype.Device{*device}}
 	result, err := dttype.MarshalMembershipUpdate(deleteResult)
 	if err != nil {
-		klog.Errorf("Remove device %s failed, marshal membership err: %s", device.ID, err)
+		klog.Errorf("Remove device %s failed, marshal membership err: %s", device.Name, err)
 	}
 
 	url, err := findOneMapperAddress()
@@ -351,7 +351,7 @@ func (d *DeviceTwinShim) RemoveDevice(deviceID string, deviceName string) error 
 		return err
 	}
 
-	url = url + "/device/" + deviceID + "/remove"
+	url = url + "/device/" + deviceName + "/remove"
 	_, err = httpclient.HttpRequest(url, http.MethodDelete, result)
 	if err != nil {
 		klog.Errorf("fail to remove device with error : %+v", err)
@@ -361,39 +361,39 @@ func (d *DeviceTwinShim) RemoveDevice(deviceID string, deviceName string) error 
 	//	dtcommon.SendToEdge,
 	//	dtcommon.CommModule,
 	//	d.buildModelMessage(modules.BusGroup, "", topic, messagepkg.OperationPublish, result))
-	klog.Infof("Remove device %s successful", device.ID)
+	klog.Infof("Remove device %s successful", device.Name)
 	return nil
 }
 
-func (d *DeviceTwinShim) UpdateDeviceStatus(deviceID string, deviceName string, desiredDevice *v1alpha2.DeviceStatus) error {
+func (d *DeviceTwinShim) UpdateDeviceStatus(deviceName string, desiredDevice *v1alpha2.DeviceStatus) error {
 	// for the update device status, all desired twin is considered to add
 	klog.V(2).Info("UpdateDeviceStatus")
 	var err error
-	device, exists := d.getDeviceInstance(deviceID)
+	device, exists := d.getDeviceInstance(deviceName)
 	if !exists {
-		return fmt.Errorf("update device %s status failed, not exists", deviceID)
+		return fmt.Errorf("update device %s status failed, not exists", deviceName)
 	}
 	if desiredDevice.State != "" && device.State != desiredDevice.State {
 		device.State = desiredDevice.State
 	}
 	// save twin to sqlite
 	if desiredDevice.Twins != nil {
-		klog.V(2).Infof("update device twin for device %s", device.ID)
+		klog.V(2).Infof("update device twin for device %s", device.Name)
 		desiredTwinMap := buildMsgTwins(desiredDevice.Twins, "", false)
 		addTwins := make([]dtclient.DeviceTwin, 0, len(desiredTwinMap))
-		if err = dealTwinAdd(&addTwins, device.ID, desiredTwinMap); err != nil {
-			return fmt.Errorf("update device status deal twin failed, device: %s, err: %v", device.ID, err)
+		if err = dealTwinAdd(&addTwins, device.Name, desiredTwinMap); err != nil {
+			return fmt.Errorf("update device status deal twin failed, device: %s, err: %v", device.Name, err)
 		}
 		// remove original twin
 		for i := 1; i <= dtcommon.RetryTimes; i++ {
-			if err = dtclient.DeleteDeviceTwinByDeviceID(device.ID); err == nil {
+			if err = dtclient.DeleteDeviceTwinByDeviceID(device.Name); err == nil {
 				break
 			}
 			time.Sleep(dtcommon.RetryInterval)
 		}
 		if err != nil {
-			d.syncDeviceFromSqlite(device.ID)
-			return fmt.Errorf("update device %s twin failed due to writing sql error: %v", device.ID, err)
+			d.syncDeviceFromSqlite(device.Name)
+			return fmt.Errorf("update device %s twin failed due to writing sql error: %v", device.Name, err)
 		}
 		// add desired twin
 		for i := 1; i <= dtcommon.RetryTimes; i++ {
@@ -403,13 +403,13 @@ func (d *DeviceTwinShim) UpdateDeviceStatus(deviceID string, deviceName string, 
 			time.Sleep(dtcommon.RetryInterval)
 		}
 		if err != nil {
-			d.syncDeviceFromSqlite(device.ID)
-			return fmt.Errorf("update device %s twin failed due to writing sql error: %v", device.ID, err)
+			d.syncDeviceFromSqlite(device.Name)
+			return fmt.Errorf("update device %s twin failed due to writing sql error: %v", device.Name, err)
 		}
 		device.Twin = desiredTwinMap
 	}
 	// save to cache
-	d.deviceList.Store(deviceID, device)
+	d.deviceList.Store(deviceName, device)
 
 	// publish device to mqtt
 	// TODO if desiredDevice twin different to src twin, such as an extra columnA, missing columnB, update columnC, does result need to add missing columnB?
@@ -417,7 +417,7 @@ func (d *DeviceTwinShim) UpdateDeviceStatus(deviceID string, deviceName string, 
 	addDeviceResult := dttype.MembershipUpdate{BaseMessage: baseMessage, AddDevices: []dttype.Device{*device}}
 	result, err := dttype.MarshalMembershipUpdate(addDeviceResult)
 	if err != nil {
-		return fmt.Errorf("update device status %s failed, marshal membership err: %s", device.ID, err)
+		return fmt.Errorf("update device status %s failed, marshal membership err: %s", device.Name, err)
 	}
 
 	url, err := findOneMapperAddress()
@@ -426,7 +426,7 @@ func (d *DeviceTwinShim) UpdateDeviceStatus(deviceID string, deviceName string, 
 		return err
 	}
 
-	url = url + "/device/" + deviceID + "/updatestatus"
+	url = url + "/device/" + deviceName + "/updatestatus"
 	_, err = httpclient.HttpRequest(url, http.MethodPut, result)
 	if err != nil {
 		klog.Errorf("fail to update device status with error : %+v", err)
@@ -440,11 +440,11 @@ func (d *DeviceTwinShim) UpdateDeviceStatus(deviceID string, deviceName string, 
 	return nil
 }
 
-func (d *DeviceTwinShim) ReportDeviceStatus(deviceID string, deviceName string, reportedDevice *v1alpha2.DeviceStatus) error {
+func (d *DeviceTwinShim) ReportDeviceStatus(deviceName string, reportedDevice *v1alpha2.DeviceStatus) error {
 	klog.V(2).Info("ReportDeviceStatus")
-	device, exists := d.getDeviceInstance(deviceID)
+	device, exists := d.getDeviceInstance(deviceName)
 	if !exists {
-		return fmt.Errorf("report device %s status failed, not exists", deviceID)
+		return fmt.Errorf("report device %s status failed, not exists", deviceName)
 	}
 	baseMessage := dttype.BuildBaseMessage()
 	status := dttype.DeviceStatusResult{
@@ -457,11 +457,11 @@ func (d *DeviceTwinShim) ReportDeviceStatus(deviceID string, deviceName string, 
 		status.Twins = buildMsgTwins(reportedDevice.Twins, "", true)
 		device.State = status.State
 		device.Twin = status.Twins
-		d.deviceList.Store(device.ID, device)
+		d.deviceList.Store(device.Name, device)
 	}
 	result, err := dttype.MarshalDeviceStatusResult(status)
 	if err != nil {
-		return fmt.Errorf("report device status %s failed, marshal device status err: %s", device.ID, err)
+		return fmt.Errorf("report device status %s failed, marshal device status err: %s", device.Name, err)
 	}
 
 	url, err := findOneMapperAddress()
@@ -469,7 +469,7 @@ func (d *DeviceTwinShim) ReportDeviceStatus(deviceID string, deviceName string, 
 		klog.Errorf("fail to report device %s with error : %+v", device.Name, err)
 		return err
 	}
-	url = url + "/device/" + deviceID + "/report"
+	url = url + "/device/" + deviceName + "/report"
 	_, err = httpclient.HttpRequest(url, http.MethodGet, result)
 	if err != nil {
 		klog.Errorf("fail to report device %s with error : %+v", device.Name, err)
@@ -483,23 +483,23 @@ func (d *DeviceTwinShim) ReportDeviceStatus(deviceID string, deviceName string, 
 	return nil
 }
 
-func (d *DeviceTwinShim) PatchDeviceStatus(deviceID string, deviceName string, desiredDevice *v1alpha2.DeviceStatus) error {
+func (d *DeviceTwinShim) PatchDeviceStatus(deviceName string, desiredDevice *v1alpha2.DeviceStatus) error {
 	klog.V(2).Info("PatchDeviceStatus")
 	var err error
-	device, exists := d.getDeviceInstance(deviceID)
+	device, exists := d.getDeviceInstance(deviceName)
 	if !exists {
-		return fmt.Errorf("patch device %s status failed, not exists", deviceID)
+		return fmt.Errorf("patch device %s status failed, not exists", deviceName)
 	}
 	if desiredDevice.State != "" {
 		device.State = desiredDevice.State
 	}
 	// save twin to sqlite
 	if desiredDevice.Twins != nil {
-		klog.V(2).Infof("patch device twin for device %s", device.ID)
+		klog.V(2).Infof("patch device twin for device %s", device.Name)
 		desiredTwinMap := buildMsgTwins(desiredDevice.Twins, "", false)
-		twinUpdateResult := dealTwinUpdate(device.ID, device.Twin, desiredTwinMap)
+		twinUpdateResult := dealTwinUpdate(device.Name, device.Twin, desiredTwinMap)
 		if twinUpdateResult.Err != nil {
-			return fmt.Errorf("patch device status deal twin failed, device: %s, err: %v", device.ID, err)
+			return fmt.Errorf("patch device status deal twin failed, device: %s, err: %v", device.Name, err)
 		}
 		for i := 1; i <= dtcommon.RetryTimes; i++ {
 			if err = dtclient.DeviceTwinTrans(twinUpdateResult.Add, twinUpdateResult.Delete, twinUpdateResult.Update); err == nil {
@@ -508,15 +508,15 @@ func (d *DeviceTwinShim) PatchDeviceStatus(deviceID string, deviceName string, d
 			time.Sleep(dtcommon.RetryInterval)
 		}
 		if err != nil {
-			d.syncDeviceFromSqlite(device.ID)
-			return fmt.Errorf("patch device %s twin failed due to writing sql error: %v", device.ID, err)
+			d.syncDeviceFromSqlite(device.Name)
+			return fmt.Errorf("patch device %s twin failed due to writing sql error: %v", device.Name, err)
 		}
 		device.Twin = desiredTwinMap
 
 		// TODO result, need to send to mqtt
 	}
 	// save to cache
-	d.deviceList.Store(deviceID, device)
+	d.deviceList.Store(deviceName, device)
 
 	// publish device to mqtt
 	// TODO twinUpdateResult result have not set
@@ -524,7 +524,7 @@ func (d *DeviceTwinShim) PatchDeviceStatus(deviceID string, deviceName string, d
 	addDeviceResult := dttype.MembershipUpdate{BaseMessage: baseMessage, AddDevices: []dttype.Device{*device}}
 	result, err := dttype.MarshalMembershipUpdate(addDeviceResult)
 	if err != nil {
-		return fmt.Errorf("patch device status %s failed, marshal membership err: %s", device.ID, err)
+		return fmt.Errorf("patch device status %s failed, marshal membership err: %s", device.Name, err)
 	}
 
 	url, err := findOneMapperAddress()
@@ -532,7 +532,7 @@ func (d *DeviceTwinShim) PatchDeviceStatus(deviceID string, deviceName string, d
 		klog.Errorf("fail to patch device %s with error : %+v", device.Name, err)
 		return err
 	}
-	url = url + "/device/" + deviceID + "/patch"
+	url = url + "/device/" + deviceName + "/patch"
 	_, err = httpclient.HttpRequest(url, http.MethodPatch, result)
 	if err != nil {
 		klog.Errorf("fail to patch device %s with error : %+v", device.Name, err)
@@ -550,27 +550,27 @@ func (d *DeviceTwinShim) ListDevices(filter *dmiapi.DeviceFilter) ([]*v1alpha2.D
 	return nil, fmt.Errorf("device twin shim does not support list devices, continue")
 }
 
-func (d *DeviceTwinShim) GetDevice(deviceID string, deviceName string) (*v1alpha2.DeviceStatus, error) {
+func (d *DeviceTwinShim) GetDevice(deviceName string) (*v1alpha2.DeviceStatus, error) {
 	klog.V(2).Info("GetDevice")
 	var err error
-	device, exists := d.getDeviceInstance(deviceID)
+	device, exists := d.getDeviceInstance(deviceName)
 	if !exists {
-		return nil, fmt.Errorf("get device %s failed, not exists", deviceID)
+		return nil, fmt.Errorf("get device %s failed, not exists", deviceName)
 	}
 
 	// send to mqtt get status
 	twinDelta, ok := dttype.BuildDeviceTwinDelta(dttype.BuildBaseMessage(), device.Twin)
 	if !ok {
-		return nil, fmt.Errorf("get device %s failed, build device twin delta failed", device.ID)
+		return nil, fmt.Errorf("get device %s failed, build device twin delta failed", device.Name)
 	}
-	klog.Infof("get device %s: send delta", deviceID)
+	klog.Infof("get device %s: send delta", deviceName)
 
 	url, err := findOneMapperAddress()
 	if err != nil {
 		klog.Errorf("fail to get device %s with error : %+v", device.Name, err)
 		return nil, err
 	}
-	url = url + "/device/" + deviceID + "/twins"
+	url = url + "/device/" + deviceName + "/twins"
 	_, err = httpclient.HttpRequest(url, http.MethodGet, twinDelta)
 	if err != nil {
 		klog.Errorf("fail to get device %s with error : %+v", device.Name, err)
@@ -590,25 +590,25 @@ func (d *DeviceTwinShim) GetDevice(deviceID string, deviceName string) (*v1alpha
 	select {
 	case msg, ok := <-d.CommChan[d.Name()]:
 		if !ok {
-			return nil, fmt.Errorf("failed to get device %s", device.ID)
+			return nil, fmt.Errorf("failed to get device %s", device.Name)
 		}
 		if dtMsg, isDTMessage := msg.(*dttype.DTMessage); isDTMessage {
 			if dtMsg.Msg == nil {
-				return nil, fmt.Errorf("get device %s failed, msg is nil", device.ID)
+				return nil, fmt.Errorf("get device %s failed, msg is nil", device.Name)
 			}
 			if err = json.Unmarshal(dtMsg.Msg.Content.([]byte), &res); err != nil {
-				return nil, fmt.Errorf("get device %s failed, unmarshal message content failed, err: %v", device.ID, err)
+				return nil, fmt.Errorf("get device %s failed, unmarshal message content failed, err: %v", device.Name, err)
 			}
 		}
 	case <-ctx.Done():
-		return nil, fmt.Errorf("time out to get device %s", device.ID)
+		return nil, fmt.Errorf("time out to get device %s", device.Name)
 	}
 
 	// save new status to sqlite
 	msgTwins := buildMsgTwins(res.Twins, "", true)
-	twinUpdateResult := dealTwinUpdate(device.ID, device.Twin, msgTwins)
+	twinUpdateResult := dealTwinUpdate(device.Name, device.Twin, msgTwins)
 	if twinUpdateResult.Err != nil {
-		return nil, fmt.Errorf("get device %s save twin failed, err: %v", device.ID, err)
+		return nil, fmt.Errorf("get device %s save twin failed, err: %v", device.Name, err)
 	}
 	for i := 1; i <= dtcommon.RetryTimes; i++ {
 		if err = dtclient.DeviceTwinTrans(twinUpdateResult.Add, twinUpdateResult.Delete, twinUpdateResult.Update); err == nil {
@@ -617,14 +617,14 @@ func (d *DeviceTwinShim) GetDevice(deviceID string, deviceName string) (*v1alpha
 		time.Sleep(dtcommon.RetryInterval)
 	}
 	if err != nil {
-		d.syncDeviceFromSqlite(device.ID)
+		d.syncDeviceFromSqlite(device.Name)
 		return nil, fmt.Errorf("add device attr failed due to writing sql error: %v", err)
 	}
 
 	// save new status to cache
 	device.State = res.State
 	device.Twin = msgTwins
-	d.deviceList.Store(device.ID, device)
+	d.deviceList.Store(device.Name, device)
 
 	return res, nil
 }
@@ -679,11 +679,11 @@ func dealAddTwinVersion(version *dttype.TwinVersion, reqVersion *dttype.TwinVers
 	return nil
 }
 
-func dealTwinAdd(result *[]dtclient.DeviceTwin, deviceID string, twins map[string]*dttype.MsgTwin) error {
+func dealTwinAdd(result *[]dtclient.DeviceTwin, deviceName string, twins map[string]*dttype.MsgTwin) error {
 	for key, twin := range twins {
 		now := time.Now().UnixNano() / 1e6
 		addTwin := dttype.MsgTwinToDeviceTwin(key, twin)
-		addTwin.DeviceID = deviceID
+		addTwin.DeviceID = deviceName
 		//add deleted twin when syncing from cloud: add version
 		if twin.Metadata.Type == dtcommon.TypeDeleted {
 			if twin.ExpectedVersion != nil {
@@ -796,10 +796,10 @@ func buildMsgAttrs(model v1alpha2.DeviceModel) map[string]*dttype.MsgAttr {
 }
 
 // dealAttrAdd add device attributes
-func dealAttrAdd(result *[]dtclient.DeviceAttr, deviceID string, attributes map[string]*dttype.MsgAttr) error {
+func dealAttrAdd(result *[]dtclient.DeviceAttr, deviceName string, attributes map[string]*dttype.MsgAttr) error {
 	for key, attr := range attributes {
 		deviceAttr := dttype.MsgAttrToDeviceAttr(key, attr)
-		deviceAttr.DeviceID = deviceID
+		deviceAttr.DeviceID = deviceName
 		deviceAttr.Value = attr.Value
 		if attr.Optional != nil {
 			optional := *attr.Optional
@@ -865,7 +865,7 @@ func dealCompareTwinVersion(version *dttype.TwinVersion, reqVersion *dttype.Twin
 	return nil
 }
 
-func dealTwinCompare(deviceID string, key string, twin *dttype.MsgTwin, msgTwin *dttype.MsgTwin) (*dtclient.DeviceTwinUpdate, error) {
+func dealTwinCompare(deviceName string, key string, twin *dttype.MsgTwin, msgTwin *dttype.MsgTwin) (*dtclient.DeviceTwinUpdate, error) {
 	klog.V(2).Info("dealTwinCompare")
 	if msgTwin == nil {
 		return nil, nil
@@ -952,10 +952,10 @@ func dealTwinCompare(deviceID string, key string, twin *dttype.MsgTwin, msgTwin 
 		}
 	}
 
-	return &dtclient.DeviceTwinUpdate{DeviceID: deviceID, Name: key, Cols: cols}, nil
+	return &dtclient.DeviceTwinUpdate{DeviceID: deviceName, Name: key, Cols: cols}, nil
 }
 
-func dealTwinUpdate(deviceID string, src, twins map[string]*dttype.MsgTwin) dttype.DealTwinResult {
+func dealTwinUpdate(deviceName string, src, twins map[string]*dttype.MsgTwin) dttype.DealTwinResult {
 	res := dttype.DealTwinResult{
 		Add:    make([]dtclient.DeviceTwin, 0),
 		Delete: make([]dtclient.DeviceDelete, 0),
@@ -970,18 +970,18 @@ func dealTwinUpdate(deviceID string, src, twins map[string]*dttype.MsgTwin) dtty
 				continue
 			}
 			// src not found twin, so add it
-			if err := dealTwinAdd(&res.Add, deviceID, map[string]*dttype.MsgTwin{key: twin}); err != nil {
+			if err := dealTwinAdd(&res.Add, deviceName, map[string]*dttype.MsgTwin{key: twin}); err != nil {
 				return dttype.DealTwinResult{Err: err}
 			}
 			continue
 		}
 		// src found twin, but twin metadata type is delete, so remove it
 		if twin.Metadata != nil && twin.Metadata.Type == dtcommon.TypeDeleted {
-			res.Delete = append(res.Delete, dtclient.DeviceDelete{DeviceID: deviceID, Name: key})
+			res.Delete = append(res.Delete, dtclient.DeviceDelete{DeviceID: deviceName, Name: key})
 			continue
 		}
 		// src found twin, metadata type is normal data type, so update it
-		twinUpdate, err := dealTwinCompare(deviceID, key, oldTwin, twin)
+		twinUpdate, err := dealTwinCompare(deviceName, key, oldTwin, twin)
 		if err != nil {
 			return dttype.DealTwinResult{Err: err}
 		}
@@ -992,7 +992,7 @@ func dealTwinUpdate(deviceID string, src, twins map[string]*dttype.MsgTwin) dtty
 	return res
 }
 
-func dealAttrUpdate(deviceID string, srcAttrs, msgAttrs map[string]*dttype.MsgAttr) dttype.DealAttrResult {
+func dealAttrUpdate(deviceName string, srcAttrs, msgAttrs map[string]*dttype.MsgAttr) dttype.DealAttrResult {
 	if srcAttrs == nil {
 		srcAttrs = make(map[string]*dttype.MsgAttr)
 	}
@@ -1005,7 +1005,7 @@ func dealAttrUpdate(deviceID string, srcAttrs, msgAttrs map[string]*dttype.MsgAt
 		if attr, exist := srcAttrs[key]; exist {
 			if msgAttr == nil {
 				if *attr.Optional {
-					deletes = append(deletes, dtclient.DeviceDelete{DeviceID: deviceID, Name: key})
+					deletes = append(deletes, dtclient.DeviceDelete{DeviceID: deviceName, Name: key})
 					result[key] = nil
 					delete(srcAttrs, key)
 				}
@@ -1047,13 +1047,13 @@ func dealAttrUpdate(deviceID string, srcAttrs, msgAttrs map[string]*dttype.MsgAt
 				}
 			}
 			if isChange {
-				update = append(update, dtclient.DeviceAttrUpdate{DeviceID: deviceID, Name: key, Cols: cols})
+				update = append(update, dtclient.DeviceAttrUpdate{DeviceID: deviceName, Name: key, Cols: cols})
 			} else {
 				delete(result, key)
 			}
 		} else {
 			deviceAttr := dttype.MsgAttrToDeviceAttr(key, msgAttr)
-			deviceAttr.DeviceID = deviceID
+			deviceAttr.DeviceID = deviceName
 			deviceAttr.Value = msgAttr.Value
 			if msgAttr.Optional != nil {
 				optional := *msgAttr.Optional

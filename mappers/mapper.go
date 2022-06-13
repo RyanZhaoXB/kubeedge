@@ -10,7 +10,6 @@ import (
 	"github.com/kubeedge/beehive/pkg/core/model"
 	"github.com/kubeedge/kubeedge/edge/pkg/common/modules"
 	dmiapi "github.com/kubeedge/kubeedge/edge/pkg/dmi/apis/v1"
-	"github.com/kubeedge/kubeedge/mappers/config"
 	"github.com/kubeedge/kubeedge/mappers/dtclient"
 	"github.com/kubeedge/kubeedge/mappers/dttype"
 )
@@ -18,7 +17,7 @@ import (
 type DeviceTwinShim struct {
 	GroupID     string
 	NodeName    string
-	cfg         *config.MapperConfig
+	cfg         *dmiapi.MapperInfo
 	ctx         *context.Context
 	deviceList  *sync.Map
 	deviceMutex *sync.Map

@@ -27,6 +27,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
@@ -64,6 +65,7 @@ const (
 
 // ResourceTypeDeviceModel is type for device model distribute to node
 const ResourceTypeDeviceModel = "devicemodel"
+const ResourceTypeDevice = "device"
 
 // DownstreamController watch kubernetes api server and send change to edge
 type DownstreamController struct {
@@ -415,6 +417,7 @@ func (dc *DownstreamController) deviceAdded(device *v1alpha2.Device) {
 		}
 
 		dc.sendDeviceModelMsg(device, model.InsertOperation)
+		dc.sendDeviceMsg(device, model.InsertOperation)
 	}
 }
 
@@ -656,6 +659,7 @@ func (dc *DownstreamController) deviceUpdated(device *v1alpha2.Device) {
 				if isDeviceStatusUpdated(&cachedDevice.Status, &device.Status) ||
 					isDeviceDataUpdated(&cachedDevice.Spec.Data, &device.Spec.Data) {
 					dc.sendDeviceModelMsg(device, model.UpdateOperation)
+					dc.sendDeviceMsg(device, model.UpdateOperation)
 				}
 			}
 		}
@@ -852,6 +856,43 @@ func deleteDeviceModelAndVisitors(deviceModel *v1alpha2.DeviceModel, deviceProfi
 	}
 }
 
+func (dc *DownstreamController) sendDeviceMsg(device *v1alpha2.Device, operation string) {
+	device.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "devices.kubeedge.io",
+		Version: "v1alpha2",
+		Kind:    "Device",
+	})
+	modelMsg := model.NewMessage("").
+		SetResourceVersion(device.ResourceVersion).
+		FillBody(device)
+	modelResource, err := messagelayer.BuildResource(
+		device.Spec.NodeSelector.NodeSelectorTerms[0].MatchExpressions[0].Values[0],
+		device.Namespace,
+		ResourceTypeDevice,
+		device.Name)
+	if err != nil {
+		klog.Warningf("Built message resource failed for device, device: %s, operation: %s, error: %s", device.Name, operation, err)
+		return
+	}
+
+	// filter operation
+	switch operation {
+	case model.InsertOperation:
+	case model.DeleteOperation:
+	case model.UpdateOperation:
+	default:
+		klog.Warningf("unknown operation %s for device %s when send device msg", operation, device.Name)
+		return
+	}
+	modelMsg.BuildRouter(modules.DeviceControllerModuleName, "resource", modelResource, operation)
+
+	err = dc.messageLayer.Send(*modelMsg)
+	if err != nil {
+		klog.Errorf("Failed to send device addition message %v, device: %s, operation: %s, error: %v",
+			modelMsg, device.Name, operation, err)
+	}
+}
+
 func (dc *DownstreamController) sendDeviceModelMsg(device *v1alpha2.Device, operation string) {
 	// send operate msg for device model
 	// now it is depended on device, maybe move this code to syncDeviceModel's method
@@ -864,7 +905,17 @@ func (dc *DownstreamController) sendDeviceModelMsg(device *v1alpha2.Device, oper
 		return
 	}
 
-	deviceModel := edgeDeviceModel.(v1alpha2.DeviceModel)
+	deviceModel, ok := edgeDeviceModel.(*v1alpha2.DeviceModel)
+	if !ok {
+		klog.Warningf("edgeDeviceModel is not *v1alpha2.DeviceModel for device: %s, operation: %s", device.Name, operation)
+		return
+	}
+
+	deviceModel.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "devices.kubeedge.io",
+		Version: "v1alpha2",
+		Kind:    "DeviceModel",
+	})
 	modelMsg := model.NewMessage("").
 		SetResourceVersion(deviceModel.ResourceVersion).
 		FillBody(deviceModel)
@@ -922,6 +973,7 @@ func (dc *DownstreamController) deviceDeleted(device *v1alpha2.Device) {
 			klog.Errorf("Failed to send device addition message %v due to error %v", msg, err)
 		}
 		dc.sendDeviceModelMsg(device, model.DeleteOperation)
+		dc.sendDeviceMsg(device, model.DeleteOperation)
 	}
 }
 

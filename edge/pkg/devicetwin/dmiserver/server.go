@@ -1,3 +1,19 @@
+/*
+Copyright 2022 The KubeEdge Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package dmiserver
 
 import (
@@ -6,14 +22,19 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"sync"
+	"time"
 
 	"golang.org/x/net/context"
+	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 	"k8s.io/klog/v2"
 
 	beehiveContext "github.com/kubeedge/beehive/pkg/core/context"
 	beehiveModel "github.com/kubeedge/beehive/pkg/core/model"
+	deviceconst "github.com/kubeedge/kubeedge/cloud/pkg/devicecontroller/constants"
+	"github.com/kubeedge/kubeedge/cloud/pkg/devicecontroller/types"
 	"github.com/kubeedge/kubeedge/common/constants"
 	pb "github.com/kubeedge/kubeedge/edge/pkg/apis/dmi/v1"
 	messagepkg "github.com/kubeedge/kubeedge/edge/pkg/common/message"
@@ -24,25 +45,34 @@ import (
 )
 
 const (
-	SockPath                 string = "/tmp/dmi.sock"
-	UnixNetworkType          string = "unix"
-	ResourceTypeDeviceMapper        = "devicemapper"
+	SockPath = "/tmp/dmi.sock"
+	Limit    = 1000
+	Burst    = 100
 )
 
 type server struct {
+	mu              sync.Mutex
+	limiter         *rate.Limiter
 	mapperList      map[string]*pb.MapperInfo
 	deviceList      map[string]*v1alpha2.Device
 	deviceModelList map[string]*v1alpha2.DeviceModel
 }
 
 func (s *server) MapperRegister(ctx context.Context, in *pb.MapperRegisterRequest) (*pb.MapperRegisterResponse, error) {
+	if !s.limiter.Allow() {
+		return nil, fmt.Errorf("fail to register mapper because of too many request: %s", in.Mapper.Name)
+	}
+
 	klog.Infof("receive mapper register: %+v", in.Mapper)
 	err := saveMapper(in.Mapper)
 	if err != nil {
 		klog.Errorf("fail to save mapper %s to db with err: %v", in.Mapper.Name, err)
 		return nil, err
 	}
+	s.mu.Lock()
 	s.mapperList[in.Mapper.Name] = in.Mapper
+	s.mu.Unlock()
+
 	if !in.WithData {
 		return &pb.MapperRegisterResponse{}, nil
 	}
@@ -51,22 +81,24 @@ func (s *server) MapperRegister(ctx context.Context, in *pb.MapperRegisterReques
 	var deviceModelList []*pb.DeviceModel
 	for _, device := range s.deviceList {
 		protocol, err := dtcommon.GetProtocolNameOfDevice(device)
+		if err != nil {
+			klog.Errorf("fail to get protocol name with err: %+v", err)
+			continue
+		}
 
-		if err == nil {
-			if protocol == in.Mapper.Protocol {
-				dev, err := dtcommon.ConvertDevice(device)
-				if err != nil {
-					klog.Errorf("fail to convert device %s with err: %v", device.Name, err)
-					continue
-				}
-				dm, err := dtcommon.ConvertDeviceModel(s.deviceModelList[device.Spec.DeviceModelRef.Name])
-				if err != nil {
-					klog.Errorf("fail to convert device model %s with err: %v", s.deviceModelList[device.Spec.DeviceModelRef.Name], err)
-					continue
-				}
-				deviceList = append(deviceList, dev)
-				deviceModelList = append(deviceModelList, dm)
+		if protocol == in.Mapper.Protocol {
+			dev, err := dtcommon.ConvertDevice(device)
+			if err != nil {
+				klog.Errorf("fail to convert device %s with err: %v", device.Name, err)
+				continue
 			}
+			dm, err := dtcommon.ConvertDeviceModel(s.deviceModelList[device.Spec.DeviceModelRef.Name])
+			if err != nil {
+				klog.Errorf("fail to convert device model %s with err: %v", s.deviceModelList[device.Spec.DeviceModelRef.Name], err)
+				continue
+			}
+			deviceList = append(deviceList, dev)
+			deviceModelList = append(deviceModelList, dm)
 		}
 	}
 
@@ -77,6 +109,10 @@ func (s *server) MapperRegister(ctx context.Context, in *pb.MapperRegisterReques
 }
 
 func (s *server) ReportDeviceStatus(ctx context.Context, in *pb.ReportDeviceStatusRequest) (*pb.ReportDeviceStatusResponse, error) {
+	if !s.limiter.Allow() {
+		return nil, fmt.Errorf("fail to report device status because of too many request: %s", in.DeviceName)
+	}
+
 	for _, twin := range in.ReportedDevice.Twins {
 		propertyType, ok := twin.Reported.Metadata[PropertyType]
 		if !ok {
@@ -111,10 +147,10 @@ func CreateMessageTwinUpdate(name string, valueType string, value string) (msg [
 	var updateMsg DeviceTwinUpdate
 
 	updateMsg.BaseMessage.Timestamp = getTimestamp()
-	updateMsg.Twin = map[string]*MsgTwin{}
-	updateMsg.Twin[name] = &MsgTwin{}
-	updateMsg.Twin[name].Actual = &TwinValue{Value: &value}
-	updateMsg.Twin[name].Metadata = &TypeMetadata{Type: valueType}
+	updateMsg.Twin = map[string]*types.MsgTwin{}
+	updateMsg.Twin[name] = &types.MsgTwin{}
+	updateMsg.Twin[name].Actual = &types.TwinValue{Value: &value}
+	updateMsg.Twin[name].Metadata = &types.TypeMetadata{Type: valueType}
 
 	msg, err = json.Marshal(updateMsg)
 	return
@@ -143,14 +179,17 @@ func StartDMIServer(mapperList map[string]*pb.MapperInfo, deviceList map[string]
 		return
 	}
 
-	lis, err := net.Listen(UnixNetworkType, SockPath)
+	lis, err := net.Listen(deviceconst.UnixNetworkType, SockPath)
 	if err != nil {
 		klog.Errorf("failed to start DMI Server with err: %v", err)
 		return
 	}
 
+	limiter := rate.NewLimiter(rate.Every(Limit*time.Millisecond), Burst)
+
 	s := grpc.NewServer()
 	pb.RegisterDeviceManagerServiceServer(s, &server{
+		limiter:         limiter,
 		mapperList:      mapperList,
 		deviceList:      deviceList,
 		deviceModelList: deviceModelList,
@@ -170,10 +209,10 @@ func saveMapper(mapper *pb.MapperInfo) error {
 		return err
 	}
 	resource := fmt.Sprintf("%s%s%s%s%s%s%s%s%s", "node", constants.ResourceSep, "nodeID",
-		constants.ResourceSep, "namespace", constants.ResourceSep, ResourceTypeDeviceMapper, constants.ResourceSep, mapper.Name)
+		constants.ResourceSep, "namespace", constants.ResourceSep, deviceconst.ResourceTypeDeviceMapper, constants.ResourceSep, mapper.Name)
 	meta := &dao.Meta{
 		Key:   resource,
-		Type:  ResourceTypeDeviceMapper,
+		Type:  deviceconst.ResourceTypeDeviceMapper,
 		Value: string(content)}
 	err = dao.SaveMeta(meta)
 	if err != nil {

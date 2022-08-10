@@ -44,29 +44,6 @@ import (
 	crdinformers "github.com/kubeedge/kubeedge/pkg/client/informers/externalversions"
 )
 
-// Constants for protocol, datatype, configmap, deviceProfile
-const (
-	OPCUA              = "opcua"
-	Modbus             = "modbus"
-	Bluetooth          = "bluetooth"
-	CustomizedProtocol = "customized-protocol"
-
-	DataTypeInt     = "int"
-	DataTypeString  = "string"
-	DataTypeDouble  = "double"
-	DataTypeFloat   = "float"
-	DataTypeBoolean = "boolean"
-	DataTypeBytes   = "bytes"
-
-	DeviceProfileConfigPrefix = "device-profile-config-"
-
-	DeviceProfileJSON = "deviceProfile.json"
-)
-
-// ResourceTypeDeviceModel is type for device model distribute to node
-const ResourceTypeDeviceModel = "devicemodel"
-const ResourceTypeDevice = "device"
-
 // DownstreamController watch kubernetes api server and send change to edge
 type DownstreamController struct {
 	kubeClient   kubernetes.Interface
@@ -177,7 +154,7 @@ func (dc *DownstreamController) addToConfigMap(device *v1alpha2.Device) {
 	configMap, ok := dc.configMapManager.ConfigMap.Load(device.Spec.NodeSelector.NodeSelectorTerms[0].MatchExpressions[0].Values[0])
 	if !ok {
 		nodeConfigMap := &v1.ConfigMap{}
-		nodeConfigMap.Name = DeviceProfileConfigPrefix + device.Spec.NodeSelector.NodeSelectorTerms[0].MatchExpressions[0].Values[0]
+		nodeConfigMap.Name = constants.DeviceProfileConfigPrefix + device.Spec.NodeSelector.NodeSelectorTerms[0].MatchExpressions[0].Values[0]
 		nodeConfigMap.Namespace = device.Namespace
 		nodeConfigMap.Data = make(map[string]string)
 		// TODO: how to handle 2 device of multiple namespaces bind to same node ?
@@ -216,7 +193,7 @@ func (dc *DownstreamController) addToConfigMap(device *v1alpha2.Device) {
 // addDeviceProfile is function to add deviceProfile in configMap
 func (dc *DownstreamController) addDeviceProfile(device *v1alpha2.Device, configMap *v1.ConfigMap) {
 	deviceProfile := &types.DeviceProfile{}
-	dp, ok := configMap.Data[DeviceProfileJSON]
+	dp, ok := configMap.Data[constants.DeviceProfileJSON]
 	if !ok {
 		// create deviceProfileStruct
 		deviceProfile.DeviceInstances = make([]*types.DeviceInstance, 0)
@@ -252,7 +229,7 @@ func (dc *DownstreamController) addDeviceProfile(device *v1alpha2.Device, config
 		klog.Errorf("Failed to marshal deviceprofile: %v", deviceProfile)
 		return
 	}
-	configMap.Data[DeviceProfileJSON] = string(bytes)
+	configMap.Data[constants.DeviceProfileJSON] = string(bytes)
 }
 
 // addDeviceModelAndVisitors adds deviceModels and deviceVisitors in configMap
@@ -266,36 +243,36 @@ func addDeviceModelAndVisitors(deviceModel *v1alpha2.DeviceModel, deviceProfile 
 		property.Description = ppt.Description
 		if ppt.Type.Int != nil {
 			property.AccessMode = string(ppt.Type.Int.AccessMode)
-			property.DataType = DataTypeInt
+			property.DataType = constants.DataTypeInt
 			property.DefaultValue = ppt.Type.Int.DefaultValue
 			property.Maximum = ppt.Type.Int.Maximum
 			property.Minimum = ppt.Type.Int.Minimum
 			property.Unit = ppt.Type.Int.Unit
 		} else if ppt.Type.String != nil {
 			property.AccessMode = string(ppt.Type.String.AccessMode)
-			property.DataType = DataTypeString
+			property.DataType = constants.DataTypeString
 			property.DefaultValue = ppt.Type.String.DefaultValue
 		} else if ppt.Type.Double != nil {
 			property.AccessMode = string(ppt.Type.Double.AccessMode)
-			property.DataType = DataTypeDouble
+			property.DataType = constants.DataTypeDouble
 			property.DefaultValue = ppt.Type.Double.DefaultValue
 			property.Maximum = ppt.Type.Double.Maximum
 			property.Minimum = ppt.Type.Double.Minimum
 			property.Unit = ppt.Type.Double.Unit
 		} else if ppt.Type.Float != nil {
 			property.AccessMode = string(ppt.Type.Float.AccessMode)
-			property.DataType = DataTypeFloat
+			property.DataType = constants.DataTypeFloat
 			property.DefaultValue = ppt.Type.Float.DefaultValue
 			property.Maximum = ppt.Type.Float.Maximum
 			property.Minimum = ppt.Type.Float.Minimum
 			property.Unit = ppt.Type.Float.Unit
 		} else if ppt.Type.Boolean != nil {
 			property.AccessMode = string(ppt.Type.Boolean.AccessMode)
-			property.DataType = DataTypeBoolean
+			property.DataType = constants.DataTypeBoolean
 			property.DefaultValue = ppt.Type.Boolean.DefaultValue
 		} else if ppt.Type.Bytes != nil {
 			property.AccessMode = string(ppt.Type.Bytes.AccessMode)
-			property.DataType = DataTypeBytes
+			property.DataType = constants.DataTypeBytes
 		}
 		model.Properties = append(model.Properties, property)
 	}
@@ -315,16 +292,16 @@ func addPropertyVisitorsToDeviceInstance(device *v1alpha2.Device, deviceInstance
 		propertyVisitor.ReportCycle = pptv.ReportCycle
 		propertyVisitor.CollectCycle = pptv.CollectCycle
 		if pptv.Modbus != nil {
-			propertyVisitor.Protocol = Modbus
+			propertyVisitor.Protocol = constants.Modbus
 			propertyVisitor.VisitorConfig = pptv.Modbus
 		} else if pptv.OpcUA != nil {
-			propertyVisitor.Protocol = OPCUA
+			propertyVisitor.Protocol = constants.OPCUA
 			propertyVisitor.VisitorConfig = pptv.OpcUA
 		} else if pptv.Bluetooth != nil {
-			propertyVisitor.Protocol = Bluetooth
+			propertyVisitor.Protocol = constants.Bluetooth
 			propertyVisitor.VisitorConfig = pptv.Bluetooth
 		} else if pptv.CustomizedProtocol != nil {
-			propertyVisitor.Protocol = CustomizedProtocol
+			propertyVisitor.Protocol = constants.CustomizedProtocol
 			propertyVisitor.VisitorConfig = pptv.CustomizedProtocol
 		}
 		if pptv.CustomizedValues != nil {
@@ -346,28 +323,28 @@ func addDeviceInstanceAndProtocol(device *v1alpha2.Device, deviceProfile *types.
 	}
 	var protocol string
 	if device.Spec.Protocol.OpcUA != nil {
-		protocol = OPCUA + "-" + device.Name
+		protocol = constants.OPCUA + "-" + device.Name
 		deviceInstance.Protocol = protocol
 		deviceProtocol.Name = protocol
-		deviceProtocol.Protocol = OPCUA
+		deviceProtocol.Protocol = constants.OPCUA
 		deviceProtocol.ProtocolConfig = device.Spec.Protocol.OpcUA
 	} else if device.Spec.Protocol.Modbus != nil {
-		protocol = Modbus + "-" + device.Name
+		protocol = constants.Modbus + "-" + device.Name
 		deviceInstance.Protocol = protocol
 		deviceProtocol.Name = protocol
-		deviceProtocol.Protocol = Modbus
+		deviceProtocol.Protocol = constants.Modbus
 		deviceProtocol.ProtocolConfig = device.Spec.Protocol.Modbus
 	} else if device.Spec.Protocol.Bluetooth != nil {
-		protocol = Bluetooth + "-" + device.Name
+		protocol = constants.Bluetooth + "-" + device.Name
 		deviceInstance.Protocol = protocol
 		deviceProtocol.Name = protocol
-		deviceProtocol.Protocol = Bluetooth
+		deviceProtocol.Protocol = constants.Bluetooth
 		deviceProtocol.ProtocolConfig = device.Spec.Protocol.Bluetooth
 	} else if device.Spec.Protocol.CustomizedProtocol != nil {
-		protocol = CustomizedProtocol + "-" + device.Name
+		protocol = constants.CustomizedProtocol + "-" + device.Name
 		deviceInstance.Protocol = protocol
 		deviceProtocol.Name = protocol
-		deviceProtocol.Protocol = CustomizedProtocol
+		deviceProtocol.Protocol = constants.CustomizedProtocol
 		deviceProtocol.ProtocolConfig = device.Spec.Protocol.CustomizedProtocol
 	} else {
 		klog.Warning("Device doesn't support valid protocol")
@@ -516,7 +493,7 @@ func (dc *DownstreamController) updateConfigMap(device *v1alpha2.Device) {
 			klog.Error("Failed to assert to configmap")
 			return
 		}
-		dp, ok := nodeConfigMap.Data[DeviceProfileJSON]
+		dp, ok := nodeConfigMap.Data[constants.DeviceProfileJSON]
 		if !ok || dp == "{}" {
 			// This case should never be hit as we delete empty configmaps
 			klog.Error("Failed to get deviceProfile from configmap data or deviceProfile is empty")
@@ -547,13 +524,13 @@ func (dc *DownstreamController) updateConfigMap(device *v1alpha2.Device) {
 		// add new protocol
 		deviceProtocol := &types.Protocol{}
 		if device.Spec.Protocol.OpcUA != nil {
-			deviceProtocol = buildDeviceProtocol(OPCUA, device.Name, device.Spec.Protocol.OpcUA)
+			deviceProtocol = buildDeviceProtocol(constants.OPCUA, device.Name, device.Spec.Protocol.OpcUA)
 		} else if device.Spec.Protocol.Modbus != nil {
-			deviceProtocol = buildDeviceProtocol(Modbus, device.Name, device.Spec.Protocol.Modbus)
+			deviceProtocol = buildDeviceProtocol(constants.Modbus, device.Name, device.Spec.Protocol.Modbus)
 		} else if device.Spec.Protocol.Bluetooth != nil {
-			deviceProtocol = buildDeviceProtocol(Bluetooth, device.Name, device.Spec.Protocol.Bluetooth)
+			deviceProtocol = buildDeviceProtocol(constants.Bluetooth, device.Name, device.Spec.Protocol.Bluetooth)
 		} else if device.Spec.Protocol.CustomizedProtocol != nil {
-			deviceProtocol = buildDeviceProtocol(CustomizedProtocol, device.Name, device.Spec.Protocol.CustomizedProtocol)
+			deviceProtocol = buildDeviceProtocol(constants.CustomizedProtocol, device.Name, device.Spec.Protocol.CustomizedProtocol)
 		} else {
 			klog.Warning("Unsupported device protocol")
 		}
@@ -587,7 +564,7 @@ func (dc *DownstreamController) updateConfigMap(device *v1alpha2.Device) {
 			klog.Errorf("Failed to marshal deviceprofile: %v, error: %v", deviceProfile, err)
 			return
 		}
-		nodeConfigMap.Data[DeviceProfileJSON] = string(bytes)
+		nodeConfigMap.Data[constants.DeviceProfileJSON] = string(bytes)
 		// store new config map
 		dc.configMapManager.ConfigMap.Store(device.Spec.NodeSelector.NodeSelectorTerms[0].MatchExpressions[0].Values[0], nodeConfigMap)
 		if _, err := dc.kubeClient.CoreV1().ConfigMaps(device.Namespace).Update(context.Background(), nodeConfigMap, metav1.UpdateOptions{}); err != nil {
@@ -759,7 +736,7 @@ func (dc *DownstreamController) deleteFromConfigMap(device *v1alpha2.Device) {
 		// There are two cases we can delete configMap:
 		// 1. no device bound to it, as Data[DeviceProfileJSON] is "{}"
 		// 2. device instance created alone then removed, as Data[DeviceProfileJSON] is ""
-		if nodeConfigMap.Data[DeviceProfileJSON] == "{}" || nodeConfigMap.Data[DeviceProfileJSON] == "" {
+		if nodeConfigMap.Data[constants.DeviceProfileJSON] == "{}" || nodeConfigMap.Data[constants.DeviceProfileJSON] == "" {
 			if _, err := dc.kubeClient.CoreV1().ConfigMaps(device.Namespace).Get(context.Background(), nodeConfigMap.Name, metav1.GetOptions{}); err == nil {
 				if err = dc.kubeClient.CoreV1().ConfigMaps(device.Namespace).Delete(context.Background(), nodeConfigMap.Name, metav1.DeleteOptions{}); err != nil {
 					klog.Errorf("failed to delete config map %s in namespace %s", nodeConfigMap.Name, device.Namespace)
@@ -782,7 +759,7 @@ func (dc *DownstreamController) deleteFromConfigMap(device *v1alpha2.Device) {
 
 // deleteFromDeviceProfile deletes a device from deviceProfile
 func (dc *DownstreamController) deleteFromDeviceProfile(device *v1alpha2.Device, configMap *v1.ConfigMap) {
-	dp, ok := configMap.Data[DeviceProfileJSON]
+	dp, ok := configMap.Data[constants.DeviceProfileJSON]
 	if !ok {
 		klog.Error("Device profile does not exist in the configmap")
 		return
@@ -818,7 +795,7 @@ func (dc *DownstreamController) deleteFromDeviceProfile(device *v1alpha2.Device,
 		klog.Errorf("Failed to marshal deviceprofile: %v", deviceProfile)
 		return
 	}
-	configMap.Data[DeviceProfileJSON] = string(bytes)
+	configMap.Data[constants.DeviceProfileJSON] = string(bytes)
 }
 
 // deleteDeviceInstanceAndProtocol deletes deviceInstance and protocol from deviceProfile
@@ -868,7 +845,7 @@ func (dc *DownstreamController) sendDeviceMsg(device *v1alpha2.Device, operation
 	modelResource, err := messagelayer.BuildResource(
 		device.Spec.NodeSelector.NodeSelectorTerms[0].MatchExpressions[0].Values[0],
 		device.Namespace,
-		ResourceTypeDevice,
+		constants.ResourceTypeDevice,
 		device.Name)
 	if err != nil {
 		klog.Warningf("Built message resource failed for device, device: %s, operation: %s, error: %s", device.Name, operation, err)
@@ -922,7 +899,7 @@ func (dc *DownstreamController) sendDeviceModelMsg(device *v1alpha2.Device, oper
 	modelResource, err := messagelayer.BuildResource(
 		device.Spec.NodeSelector.NodeSelectorTerms[0].MatchExpressions[0].Values[0],
 		deviceModel.Namespace,
-		ResourceTypeDeviceModel,
+		constants.ResourceTypeDeviceModel,
 		deviceModel.Name)
 	if err != nil {
 		klog.Warningf("Built message resource failed for device model, device: %s, operation: %s, error: %s", device.Name, operation, err)

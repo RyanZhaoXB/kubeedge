@@ -10,6 +10,7 @@ import (
 
 	"k8s.io/klog/v2"
 
+	"github.com/kubeedge/kubeedge/cloud/pkg/devicecontroller/constants"
 	pb "github.com/kubeedge/kubeedge/edge/pkg/apis/dmi/v1"
 	"github.com/kubeedge/kubeedge/pkg/apis/devices/v1alpha2"
 )
@@ -18,23 +19,23 @@ import (
 func ValidateValue(valueType string, value string) error {
 	switch valueType {
 	case "":
-		valueType = "string"
+		valueType = constants.DataTypeString
 		return nil
-	case "string":
+	case constants.DataTypeString:
 		return nil
-	case "int", "integer":
+	case constants.DataTypeInt, constants.DataTypeInteger:
 		_, err := strconv.ParseInt(value, 10, 64)
 		if err != nil {
 			return errors.New("the value is not int or integer")
 		}
 		return nil
-	case "float":
+	case constants.DataTypeFloat:
 		_, err := strconv.ParseFloat(value, 64)
 		if err != nil {
 			return errors.New("the value is not float")
 		}
 		return nil
-	case "boolean":
+	case constants.DataTypeBoolean:
 		if strings.Compare(value, "true") != 0 && strings.Compare(value, "false") != 0 {
 			return errors.New("the bool value must be true or false")
 		}
@@ -63,13 +64,13 @@ func ValidateTwinValue(value string) bool {
 func GetProtocolNameOfDevice(device *v1alpha2.Device) (string, error) {
 	protocol := device.Spec.Protocol
 	if protocol.OpcUA != nil {
-		return "OPCUA", nil
+		return constants.OPCUA, nil
 	}
 	if protocol.Modbus != nil {
-		return "Modbus", nil
+		return constants.Modbus, nil
 	}
 	if protocol.Bluetooth != nil {
-		return "Bluetooth", nil
+		return constants.Bluetooth, nil
 	}
 	if protocol.CustomizedProtocol != nil {
 		return protocol.CustomizedProtocol.ProtocolName, nil

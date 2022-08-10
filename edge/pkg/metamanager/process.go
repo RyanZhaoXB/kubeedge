@@ -415,9 +415,7 @@ func (m *metaManager) processVolume(message model.Message) {
 
 func (m *metaManager) process(message model.Message) {
 	operation := message.GetOperation()
-	if message.GetSource() == "devicecontroller" {
-	} else if message.GetSource() == "edgecontroller" {
-	}
+
 	switch operation {
 	case model.InsertOperation:
 		m.processInsert(message)

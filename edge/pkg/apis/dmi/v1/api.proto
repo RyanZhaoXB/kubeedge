@@ -1,3 +1,20 @@
+/*
+Copyright 2022 The KubeEdge Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+// To regenerate api.pb.go run hack/generate-dmi.sh
 syntax = "proto3";
 
 //option go_package = "path;name";
@@ -6,13 +23,40 @@ package v1;
 
 import "google/protobuf/any.proto";
 
+// DeviceManagerService defines the public APIS for remote device management.
+// The server is implemented by the module of device manager in edgecore
+// and the client is implemented by the device mapper for upstreaming.
 service DeviceManagerService {
-  rpc MapperRegister(MapperRegisterRequest) returns (MapperRegisterResponse) {}
+    // MapperRegister register the information of the mapper to device manager
+    rpc MapperRegister(MapperRegisterRequest) returns (MapperRegisterResponse) {}
+    // ReportDeviceStatus report the status of devices to device manager
+    rpc ReportDeviceStatus(ReportDeviceStatusRequest) returns (ReportDeviceStatusResponse) {}
+}
 
-  rpc ReportDeviceStatus(ReportDeviceStatusRequest) returns (ReportDeviceStatusResponse) {}
+// DeviceMapperService defines the public APIS for remote device management.
+// The server is implemented by the device mapper
+// and the client is implemented by the module of device manager in edgecore for downstreaming.
+service DeviceMapperService {
+    // CreateDevice create a device to the device mapper
+    rpc CreateDevice(CreateDeviceRequest) returns (CreateDeviceResponse) {}
+    // RemoveDevice remove a device to the device mapper
+    rpc RemoveDevice(RemoveDeviceRequest) returns (RemoveDeviceResponse) {}
+    // UpdateDevice update a device to the device mapper
+    rpc UpdateDevice(UpdateDeviceRequest) returns (UpdateDeviceResponse) {}
+    // CreateDeviceModel create a device model to the device mapper
+    rpc CreateDeviceModel(CreateDeviceModelRequest) returns (CreateDeviceModelResponse) {}
+    // RemoveDeviceModel remove a device model to the device mapper
+    rpc RemoveDeviceModel(RemoveDeviceModelRequest) returns (RemoveDeviceModelResponse) {}
+    // UpdateDeviceModel update a device model to the device mapper
+    rpc UpdateDeviceModel(UpdateDeviceModelRequest) returns (UpdateDeviceModelResponse) {}
+    // UpdateDeviceStatus update a device status to the device mapper
+    rpc UpdateDeviceStatus(UpdateDeviceStatusRequest) returns (UpdateDeviceStatusResponse) {}
+    // GetDevice get the information of a device from the device mapper
+    rpc GetDevice(GetDeviceRequest) returns (GetDeviceResponse) {}
 }
 
 message MapperRegisterRequest {
+  // true means device manager should return the device list in the response
   bool withData = 1;
   MapperInfo mapper = 2;
 }
@@ -30,6 +74,7 @@ message DeviceModel {
 message DeviceModelSpec {
     repeated DeviceProperty properties = 1;
     repeated DeviceCommand commands = 2;
+    string protocol = 3;
 }
 
 message DeviceProperty {
@@ -248,25 +293,20 @@ message TwinProperty {
 
 message ReportDeviceStatusResponse {}
 
-service DeviceMapperService {
-    rpc CreateDevice(CreateDeviceRequest) returns (CreateDeviceResponse) {}
-    rpc RemoveDevice(RemoveDeviceRequest) returns (RemoveDeviceResponse) {}
-    rpc UpdateDevice(UpdateDeviceRequest) returns (UpdateDeviceResponse) {}
-    rpc UpdateDeviceStatus(UpdateDeviceStatusRequest) returns (UpdateDeviceStatusResponse) {}
-    rpc GetDevice(GetDeviceRequest) returns (GetDeviceResponse) {}
-}
-
 message CreateDeviceRequest {
-  DeviceConfig config = 1;
+  Device device = 1;
 }
 
 message CreateDeviceResponse {
-    string device_name = 1;
+    string deviceName = 1;
 }
 
-message DeviceConfig {
-    DeviceModel model = 1;
-    Device device = 2;
+message CreateDeviceModelRequest {
+  DeviceModel model = 1;
+}
+
+message CreateDeviceModelResponse {
+    string deviceModelName = 1;
 }
 
 message RemoveDeviceRequest {
@@ -275,12 +315,23 @@ message RemoveDeviceRequest {
 
 message RemoveDeviceResponse {}
 
+message RemoveDeviceModelRequest {
+    string modelName =1;
+}
+
+message RemoveDeviceModelResponse {}
+
 message UpdateDeviceRequest {
-    string deviceName = 1;
-    DeviceConfig config = 2;
+    Device device = 1;
 }
 
 message UpdateDeviceResponse {}
+
+message UpdateDeviceModelRequest {
+    DeviceModel model = 1;
+}
+
+message UpdateDeviceModelResponse {}
 
 message UpdateDeviceStatusRequest {
     string deviceName = 1;
@@ -294,5 +345,5 @@ message GetDeviceRequest {
 }
 
 message GetDeviceResponse {
-    DeviceStatus status = 1;
+    Device device = 1;
 }

@@ -1,3 +1,19 @@
+/*
+Copyright 2022 The KubeEdge Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package dtmanager
 
 import (
@@ -9,6 +25,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/kubeedge/beehive/pkg/core/model"
+	"github.com/kubeedge/kubeedge/cloud/pkg/devicecontroller/constants"
 	pb "github.com/kubeedge/kubeedge/edge/pkg/apis/dmi/v1"
 	"github.com/kubeedge/kubeedge/edge/pkg/devicetwin/dmiclient"
 	"github.com/kubeedge/kubeedge/edge/pkg/devicetwin/dmiserver"
@@ -17,13 +34,6 @@ import (
 	"github.com/kubeedge/kubeedge/edge/pkg/devicetwin/dttype"
 	"github.com/kubeedge/kubeedge/edge/pkg/metamanager/dao"
 	"github.com/kubeedge/kubeedge/pkg/apis/devices/v1alpha2"
-)
-
-// ResourceTypeDeviceModel is type for device model distribute to node
-const (
-	ResourceTypeDeviceModel  = "devicemodel"
-	ResourceTypeDevice       = "device"
-	ResourceTypeDeviceMapper = "devicemapper"
 )
 
 //TwinWorker deal twin event
@@ -36,10 +46,9 @@ var (
 	//dmiActionCallBack map for action to callback
 	dmiActionCallBack map[string]CallBack
 
-	MapperList        map[string]*pb.MapperInfo
-	DeviceModelList   map[string]*v1alpha2.DeviceModel
-	DeviceList        map[string]*v1alpha2.Device
-	PendingDeviceList map[string]*v1alpha2.Device
+	mapperList      map[string]*pb.MapperInfo
+	deviceModelList map[string]*v1alpha2.DeviceModel
+	deviceList      map[string]*v1alpha2.Device
 )
 
 //Start worker
@@ -49,10 +58,8 @@ func (dw DMIWorker) Start() {
 	initDeviceModelInfoFromDB()
 	initDeviceInfoFromDB()
 	initDeviceMapperInfoFromDB()
-	initPendingDeviceList()
 
-	go dmiserver.StartDMIServer(MapperList, DeviceList, DeviceModelList)
-	go dealPendingDeviceList()
+	go dmiserver.StartDMIServer(mapperList, deviceList, deviceModelList)
 
 	for {
 		select {
@@ -100,26 +107,21 @@ func dealMetaDeviceOperation(context *dtcontext.DTContext, resource string, msg 
 	var device v1alpha2.Device
 	var dm v1alpha2.DeviceModel
 	switch resources[1] {
-	case "device":
+	case constants.ResourceTypeDevice:
 		switch message.GetOperation() {
-		case "insert":
+		case model.InsertOperation:
 			err := json.Unmarshal(message.Content.([]byte), &device)
 			if err != nil {
 				return fmt.Errorf("invalid message content with err: %+v", err)
 			}
 
-			dm, ok := DeviceModelList[device.Spec.DeviceModelRef.Name]
-			if !ok {
-				PendingDeviceList[device.Name] = &device
-				return nil
-			}
-			err = GrpcCreateDevice(&device, dm)
+			err = GrpcCreateDevice(&device)
 			if err != nil {
 				klog.Errorf("add device %s failed with err: %s", device.Name, err)
 				return err
 			}
-			DeviceList[device.Name] = &device
-		case "delete":
+			deviceList[device.Name] = &device
+		case model.DeleteOperation:
 			err := json.Unmarshal(message.Content.([]byte), &device)
 			if err != nil {
 				return fmt.Errorf("invalid message content with err: %+v", err)
@@ -130,48 +132,60 @@ func dealMetaDeviceOperation(context *dtcontext.DTContext, resource string, msg 
 				klog.Errorf("delete device %s failed with err: %s", device.Name, err)
 				return err
 			}
-			delete(PendingDeviceList, device.Name)
-			delete(DeviceList, device.Name)
-		case "update":
+			delete(deviceList, device.Name)
+		case model.UpdateOperation:
 			err := json.Unmarshal(message.Content.([]byte), &device)
 			if err != nil {
 				return fmt.Errorf("invalid message content with err: %+v", err)
 			}
 
-			dm, ok := DeviceModelList[device.Spec.DeviceModelRef.Name]
-			if !ok {
-				klog.Errorf("udpate device %s failed, cannot find device model", device.Name)
-				return fmt.Errorf("udpate device %s failed, cannot find device model", device.Name)
-			}
-			err = GrpcUpdateDevice(&device, dm)
+			err = GrpcUpdateDevice(&device)
 			if err != nil {
 				klog.Errorf("udpate device %s failed with err: %s", device.Name, err)
 				return err
 			}
-			DeviceList[device.Name] = &device
+			deviceList[device.Name] = &device
 		default:
 			klog.Warningf("unsupported operation %s", message.GetOperation())
 		}
-	case "devicemodel":
+	case constants.ResourceTypeDeviceModel:
 		switch message.GetOperation() {
-		case "insert":
+		case model.InsertOperation:
 			err := json.Unmarshal(message.Content.([]byte), &dm)
 			if err != nil {
 				return fmt.Errorf("invalid message content with err: %+v", err)
 			}
-			DeviceModelList[dm.Name] = &dm
-		case "delete":
+			err = GrpcCreateDeviceModel(&dm)
+			if err != nil {
+				klog.Errorf("add device model %s failed with err: %s", dm.Name, err)
+				return err
+			}
+
+			deviceModelList[dm.Name] = &dm
+		case model.DeleteOperation:
 			err := json.Unmarshal(message.Content.([]byte), &dm)
 			if err != nil {
 				return fmt.Errorf("invalid message content with err: %+v", err)
 			}
-			delete(DeviceModelList, dm.Name)
-		case "update":
+			err = GrpcRemoveDeviceModel(&dm)
+			if err != nil {
+				klog.Errorf("delete device model %s failed with err: %s", dm.Name, err)
+				return err
+			}
+
+			delete(deviceModelList, dm.Name)
+		case model.UpdateOperation:
 			err := json.Unmarshal(message.Content.([]byte), &dm)
 			if err != nil {
 				return fmt.Errorf("invalid message content with err: %+v", err)
 			}
-			DeviceModelList[dm.Name] = &dm
+			err = GrpcUpdateDeviceModel(&dm)
+			if err != nil {
+				klog.Errorf("update device model %s failed with err: %s", dm.Name, err)
+				return err
+			}
+
+			deviceModelList[dm.Name] = &dm
 		default:
 			klog.Warningf("unsupported operation %s", message.GetOperation())
 		}
@@ -183,7 +197,7 @@ func dealMetaDeviceOperation(context *dtcontext.DTContext, resource string, msg 
 	return nil
 }
 
-func GrpcCreateDevice(device *v1alpha2.Device, model *v1alpha2.DeviceModel) error {
+func GrpcCreateDevice(device *v1alpha2.Device) error {
 	protocol, err := dtcommon.GetProtocolNameOfDevice(device)
 	if err != nil {
 		return err
@@ -201,9 +215,9 @@ func GrpcCreateDevice(device *v1alpha2.Device, model *v1alpha2.DeviceModel) erro
 	defer conn.Close()
 	defer cancelFunc()
 
-	cdr, err := dmiclient.CreateDeviceRequest(device, model)
+	cdr, err := dmiclient.CreateDeviceRequest(device)
 	if err != nil {
-		return fmt.Errorf("fail to create CDRequest for device %s with err: %v", device.Name, err)
+		return fmt.Errorf("fail to create CreateDeviceRequest for device %s with err: %v", device.Name, err)
 	}
 	_, err = dc.CreateDevice(ctx, cdr)
 	if err != nil {
@@ -230,18 +244,18 @@ func GrpcRemoveDevice(device *v1alpha2.Device) error {
 	defer conn.Close()
 	defer cancelFunc()
 
-	cdr, err := dmiclient.RemoveDeviceRequest(device.Name)
+	rdr, err := dmiclient.RemoveDeviceRequest(device.Name)
 	if err != nil {
-		return err
+		return fmt.Errorf("fail to generate RemoveDeviceRequest for device %s with err: %v", device.Name, err)
 	}
-	_, err = dc.RemoveDevice(ctx, cdr)
+	_, err = dc.RemoveDevice(ctx, rdr)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func GrpcUpdateDevice(device *v1alpha2.Device, model *v1alpha2.DeviceModel) error {
+func GrpcUpdateDevice(device *v1alpha2.Device) error {
 	protocol, err := dtcommon.GetProtocolNameOfDevice(device)
 	if err != nil {
 		return err
@@ -259,11 +273,89 @@ func GrpcUpdateDevice(device *v1alpha2.Device, model *v1alpha2.DeviceModel) erro
 	defer conn.Close()
 	defer cancelFunc()
 
-	cdr, err := dmiclient.UpdateDeviceRequest(device, model)
+	udr, err := dmiclient.UpdateDeviceRequest(device)
 	if err != nil {
 		return fmt.Errorf("fail to generate UpdateDeviceRequest for device %s with err: %v", device.Name, err)
 	}
-	_, err = dc.UpdateDevice(ctx, cdr)
+	_, err = dc.UpdateDevice(ctx, udr)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func GrpcCreateDeviceModel(model *v1alpha2.DeviceModel) error {
+	protocol := model.Spec.Protocol
+	sockPath := GetSockPath(protocol)
+	if sockPath == "" {
+		return fmt.Errorf("cannot get sockPath of protocol %s", protocol)
+	}
+
+	dc, ctx, conn, cancelFunc, err := dmiclient.GenerateDMIClient(sockPath)
+	if err != nil {
+		return err
+	}
+
+	defer conn.Close()
+	defer cancelFunc()
+
+	cdmr, err := dmiclient.CreateDeviceModelRequest(model)
+	if err != nil {
+		return fmt.Errorf("fail to create CreateDeviceModelRequest for device model %s with err: %v", model.Name, err)
+	}
+	_, err = dc.CreateDeviceModel(ctx, cdmr)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func GrpcRemoveDeviceModel(model *v1alpha2.DeviceModel) error {
+	protocol := model.Spec.Protocol
+	sockPath := GetSockPath(protocol)
+	if sockPath == "" {
+		return fmt.Errorf("cannot get sockPath of protocol %s", protocol)
+	}
+
+	dc, ctx, conn, cancelFunc, err := dmiclient.GenerateDMIClient(sockPath)
+	if err != nil {
+		return err
+	}
+
+	defer conn.Close()
+	defer cancelFunc()
+
+	rdmr, err := dmiclient.RemoveDeviceModelRequest(model.Name)
+	if err != nil {
+		return fmt.Errorf("fail to create RemoveDeviceModelRequest for device model %s with err: %v", model.Name, err)
+	}
+	_, err = dc.RemoveDeviceModel(ctx, rdmr)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func GrpcUpdateDeviceModel(model *v1alpha2.DeviceModel) error {
+	protocol := model.Spec.Protocol
+	sockPath := GetSockPath(protocol)
+	if sockPath == "" {
+		return fmt.Errorf("cannot get sockPath of protocol %s", protocol)
+	}
+
+	dc, ctx, conn, cancelFunc, err := dmiclient.GenerateDMIClient(sockPath)
+	if err != nil {
+		return err
+	}
+
+	defer conn.Close()
+	defer cancelFunc()
+
+	udmr, err := dmiclient.UpdateDeviceModelRequest(model)
+	if err != nil {
+		return fmt.Errorf("fail to create UpdateDeviceModelRequest for device model %s with err: %v", model.Name, err)
+	}
+	_, err = dc.UpdateDeviceModel(ctx, udmr)
 	if err != nil {
 		return err
 	}
@@ -271,7 +363,7 @@ func GrpcUpdateDevice(device *v1alpha2.Device, model *v1alpha2.DeviceModel) erro
 }
 
 func GetSockPath(protocol string) string {
-	for _, mapper := range MapperList {
+	for _, mapper := range mapperList {
 		if mapper.GetProtocol() == protocol {
 			return string(mapper.Address)
 		}
@@ -280,8 +372,8 @@ func GetSockPath(protocol string) string {
 }
 
 func initDeviceModelInfoFromDB() {
-	DeviceModelList = make(map[string]*v1alpha2.DeviceModel)
-	metas, err := dao.QueryMeta("type", ResourceTypeDeviceModel)
+	deviceModelList = make(map[string]*v1alpha2.DeviceModel)
+	metas, err := dao.QueryMeta("type", constants.ResourceTypeDeviceModel)
 	if err != nil {
 		klog.Errorf("fail to init device model info from db with err: %v", err)
 		return
@@ -294,18 +386,14 @@ func initDeviceModelInfoFromDB() {
 			return
 		}
 		klog.Infof("deviceModel: %+v", deviceModel)
-		DeviceModelList[deviceModel.Name] = deviceModel
+		deviceModelList[deviceModel.Name] = deviceModel
 	}
 	klog.Infoln("success to init device model info from db")
 }
 
-func initPendingDeviceList() {
-	PendingDeviceList = make(map[string]*v1alpha2.Device)
-}
-
 func initDeviceInfoFromDB() {
-	DeviceList = make(map[string]*v1alpha2.Device)
-	metas, err := dao.QueryMeta("type", ResourceTypeDevice)
+	deviceList = make(map[string]*v1alpha2.Device)
+	metas, err := dao.QueryMeta("type", constants.ResourceTypeDevice)
 	if err != nil {
 		klog.Errorf("fail to init device info from db with err: %v", err)
 		return
@@ -317,14 +405,14 @@ func initDeviceInfoFromDB() {
 			klog.Errorf("fail to unmarshal device info from db with err: %v", err)
 			return
 		}
-		DeviceList[device.Name] = device
+		deviceList[device.Name] = device
 	}
 	klog.Infoln("success to init device info from db")
 }
 
 func initDeviceMapperInfoFromDB() {
-	MapperList = make(map[string]*pb.MapperInfo)
-	metas, err := dao.QueryMeta("type", ResourceTypeDeviceMapper)
+	mapperList = make(map[string]*pb.MapperInfo)
+	metas, err := dao.QueryMeta("type", constants.ResourceTypeDeviceMapper)
 	if err != nil {
 		klog.Errorf("fail to init device mapper info from db with err: %v", err)
 		return
@@ -336,26 +424,7 @@ func initDeviceMapperInfoFromDB() {
 			klog.Errorf("fail to unmarshal device mapper info from db with err: %v", err)
 			return
 		}
-		MapperList[deviceMapper.Name] = deviceMapper
+		mapperList[deviceMapper.Name] = deviceMapper
 	}
 	klog.Infoln("success to init device mapper info from db")
-}
-
-func dealPendingDeviceList() {
-	for {
-		for _, device := range PendingDeviceList {
-			dm, ok := DeviceModelList[device.Spec.DeviceModelRef.Name]
-			if !ok {
-				continue
-			}
-			err := GrpcCreateDevice(device, dm)
-			if err != nil {
-				klog.Errorf("add device %s failed with err: %s", device.Name, err)
-				continue
-			}
-
-			DeviceList[device.Name] = device
-			delete(PendingDeviceList, device.Name)
-		}
-	}
 }

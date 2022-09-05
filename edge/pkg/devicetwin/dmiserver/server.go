@@ -39,16 +39,19 @@ import (
 	pb "github.com/kubeedge/kubeedge/edge/pkg/apis/dmi/v1"
 	messagepkg "github.com/kubeedge/kubeedge/edge/pkg/common/message"
 	"github.com/kubeedge/kubeedge/edge/pkg/common/modules"
+	"github.com/kubeedge/kubeedge/edge/pkg/devicetwin/dmiclient"
 	"github.com/kubeedge/kubeedge/edge/pkg/devicetwin/dtcommon"
 	"github.com/kubeedge/kubeedge/edge/pkg/metamanager/dao"
 	"github.com/kubeedge/kubeedge/pkg/apis/devices/v1alpha2"
 )
 
 const (
-	SockPath = "/tmp/dmi.sock"
+	SockPath = "/etc/kubeedge/dmi.sock"
 	Limit    = 1000
 	Burst    = 100
 )
+
+var dmiClientList map[string]*DmiClient
 
 type server struct {
 	mu              sync.Mutex
@@ -56,6 +59,25 @@ type server struct {
 	mapperList      map[string]*pb.MapperInfo
 	deviceList      map[string]*v1alpha2.Device
 	deviceModelList map[string]*v1alpha2.DeviceModel
+}
+
+type DmiClient struct {
+	Client     pb.DeviceMapperServiceClient
+	Ctx        context.Context
+	Conn       *grpc.ClientConn
+	CancelFunc context.CancelFunc
+}
+
+func init() {
+	dmiClientList = make(map[string]*DmiClient)
+}
+
+func GetDMIClientByProtocol(protocol string) (*DmiClient, error) {
+	dc, ok := dmiClientList[protocol]
+	if !ok {
+		return nil, fmt.Errorf("fail to get dmi client of protocol %s", protocol)
+	}
+	return dc, nil
 }
 
 func (s *server) MapperRegister(ctx context.Context, in *pb.MapperRegisterRequest) (*pb.MapperRegisterResponse, error) {
@@ -100,6 +122,23 @@ func (s *server) MapperRegister(ctx context.Context, in *pb.MapperRegisterReques
 			deviceList = append(deviceList, dev)
 			deviceModelList = append(deviceModelList, dm)
 		}
+	}
+
+	client, ok := dmiClientList[in.Mapper.Protocol]
+	if ok {
+		client.Conn.Close()
+		client.CancelFunc()
+	}
+
+	dc, ctx, conn, cancelFunc, err := dmiclient.GenerateDMIClient(string(in.Mapper.Address))
+	if err != nil {
+		return nil, err
+	}
+	dmiClientList[in.Mapper.Protocol] = &DmiClient{
+		Client:     dc,
+		Ctx:        ctx,
+		Conn:       conn,
+		CancelFunc: cancelFunc,
 	}
 
 	return &pb.MapperRegisterResponse{

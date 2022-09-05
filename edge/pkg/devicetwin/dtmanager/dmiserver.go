@@ -207,19 +207,16 @@ func GrpcCreateDevice(device *v1alpha2.Device) error {
 		return fmt.Errorf("cannot get sockPath of protocol %s", protocol)
 	}
 
-	dc, ctx, conn, cancelFunc, err := dmiclient.GenerateDMIClient(sockPath)
+	dc, err := dmiserver.GetDMIClientByProtocol(protocol)
 	if err != nil {
 		return err
 	}
-
-	defer conn.Close()
-	defer cancelFunc()
 
 	cdr, err := dmiclient.CreateDeviceRequest(device)
 	if err != nil {
 		return fmt.Errorf("fail to create CreateDeviceRequest for device %s with err: %v", device.Name, err)
 	}
-	_, err = dc.CreateDevice(ctx, cdr)
+	_, err = dc.Client.CreateDevice(dc.Ctx, cdr)
 	if err != nil {
 		return err
 	}

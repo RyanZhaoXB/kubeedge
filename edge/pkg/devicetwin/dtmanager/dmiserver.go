@@ -233,19 +233,16 @@ func GrpcRemoveDevice(device *v1alpha2.Device) error {
 		return fmt.Errorf("cannot get sockPath of protocol %s", protocol)
 	}
 
-	dc, ctx, conn, cancelFunc, err := dmiclient.GenerateDMIClient(sockPath)
+	dc, err := dmiserver.GetDMIClientByProtocol(protocol)
 	if err != nil {
 		return err
 	}
-
-	defer conn.Close()
-	defer cancelFunc()
 
 	rdr, err := dmiclient.RemoveDeviceRequest(device.Name)
 	if err != nil {
 		return fmt.Errorf("fail to generate RemoveDeviceRequest for device %s with err: %v", device.Name, err)
 	}
-	_, err = dc.RemoveDevice(ctx, rdr)
+	_, err = dc.Client.RemoveDevice(dc.Ctx, rdr)
 	if err != nil {
 		return err
 	}
@@ -262,19 +259,16 @@ func GrpcUpdateDevice(device *v1alpha2.Device) error {
 		return fmt.Errorf("cannot get sockPath of protocol %s", protocol)
 	}
 
-	dc, ctx, conn, cancelFunc, err := dmiclient.GenerateDMIClient(sockPath)
+	dc, err := dmiserver.GetDMIClientByProtocol(protocol)
 	if err != nil {
 		return err
 	}
-
-	defer conn.Close()
-	defer cancelFunc()
 
 	udr, err := dmiclient.UpdateDeviceRequest(device)
 	if err != nil {
 		return fmt.Errorf("fail to generate UpdateDeviceRequest for device %s with err: %v", device.Name, err)
 	}
-	_, err = dc.UpdateDevice(ctx, udr)
+	_, err = dc.Client.UpdateDevice(dc.Ctx, udr)
 	if err != nil {
 		return err
 	}
@@ -288,19 +282,16 @@ func GrpcCreateDeviceModel(model *v1alpha2.DeviceModel) error {
 		return fmt.Errorf("cannot get sockPath of protocol %s", protocol)
 	}
 
-	dc, ctx, conn, cancelFunc, err := dmiclient.GenerateDMIClient(sockPath)
+	dc, err := dmiserver.GetDMIClientByProtocol(protocol)
 	if err != nil {
 		return err
 	}
-
-	defer conn.Close()
-	defer cancelFunc()
 
 	cdmr, err := dmiclient.CreateDeviceModelRequest(model)
 	if err != nil {
 		return fmt.Errorf("fail to create CreateDeviceModelRequest for device model %s with err: %v", model.Name, err)
 	}
-	_, err = dc.CreateDeviceModel(ctx, cdmr)
+	_, err = dc.Client.CreateDeviceModel(dc.Ctx, cdmr)
 	if err != nil {
 		return err
 	}
@@ -314,19 +305,16 @@ func GrpcRemoveDeviceModel(model *v1alpha2.DeviceModel) error {
 		return fmt.Errorf("cannot get sockPath of protocol %s", protocol)
 	}
 
-	dc, ctx, conn, cancelFunc, err := dmiclient.GenerateDMIClient(sockPath)
+	dc, err := dmiserver.GetDMIClientByProtocol(protocol)
 	if err != nil {
 		return err
 	}
-
-	defer conn.Close()
-	defer cancelFunc()
 
 	rdmr, err := dmiclient.RemoveDeviceModelRequest(model.Name)
 	if err != nil {
 		return fmt.Errorf("fail to create RemoveDeviceModelRequest for device model %s with err: %v", model.Name, err)
 	}
-	_, err = dc.RemoveDeviceModel(ctx, rdmr)
+	_, err = dc.Client.RemoveDeviceModel(dc.Ctx, rdmr)
 	if err != nil {
 		return err
 	}
@@ -340,19 +328,16 @@ func GrpcUpdateDeviceModel(model *v1alpha2.DeviceModel) error {
 		return fmt.Errorf("cannot get sockPath of protocol %s", protocol)
 	}
 
-	dc, ctx, conn, cancelFunc, err := dmiclient.GenerateDMIClient(sockPath)
+	dc, err := dmiserver.GetDMIClientByProtocol(protocol)
 	if err != nil {
 		return err
 	}
-
-	defer conn.Close()
-	defer cancelFunc()
 
 	udmr, err := dmiclient.UpdateDeviceModelRequest(model)
 	if err != nil {
 		return fmt.Errorf("fail to create UpdateDeviceModelRequest for device model %s with err: %v", model.Name, err)
 	}
-	_, err = dc.UpdateDeviceModel(ctx, udmr)
+	_, err = dc.Client.UpdateDeviceModel(dc.Ctx, udmr)
 	if err != nil {
 		return err
 	}

@@ -31,16 +31,19 @@ import (
 )
 
 func GenerateDMIClient(sockPath string) (dmiapi.DeviceMapperServiceClient, context.Context, *grpc.ClientConn, context.CancelFunc, error) {
+	klog.Infof("@@@ generate DMI client")
 	dialer := func(addr string, t time.Duration) (net.Conn, error) {
 		return net.Dial(deviceconst.UnixNetworkType, addr)
 	}
 
+	klog.Infof("@@@ Dial DMI client")
 	conn, err := grpc.Dial(sockPath, grpc.WithInsecure(), grpc.WithDialer(dialer))
 	if err != nil {
 		klog.Errorf("did not connect: %v\n", err)
 		return nil, nil, nil, nil, err
 	}
 
+	klog.Infof("@@@ new DMI client")
 	c := dmiapi.NewMapperClient(conn)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 

@@ -126,10 +126,12 @@ func (s *server) MapperRegister(ctx context.Context, in *pb.MapperRegisterReques
 
 	client, ok := dmiClientList[in.Mapper.Protocol]
 	if ok {
+		klog.Infof("@@@ get client from dmiClientList %s", in.Mapper.Protocol)
 		client.Conn.Close()
 		client.CancelFunc()
 	}
 
+	klog.Infof("@@@ generate DMI client")
 	dc, ctx, conn, cancelFunc, err := dmiclient.GenerateDMIClient(string(in.Mapper.Address))
 	if err != nil {
 		return nil, err
@@ -140,6 +142,7 @@ func (s *server) MapperRegister(ctx context.Context, in *pb.MapperRegisterReques
 		Conn:       conn,
 		CancelFunc: cancelFunc,
 	}
+	klog.Infof("@@@ DMI client list: %+v", dmiClientList)
 
 	return &pb.MapperRegisterResponse{
 		DeviceList: deviceList,

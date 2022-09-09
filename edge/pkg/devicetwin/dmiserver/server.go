@@ -51,8 +51,6 @@ const (
 	Burst    = 100
 )
 
-var dmiClientList map[string]*DmiClient
-
 type server struct {
 	mu              sync.Mutex
 	limiter         *rate.Limiter
@@ -61,31 +59,17 @@ type server struct {
 	deviceModelList map[string]*v1alpha2.DeviceModel
 }
 
-type DmiClient struct {
-	Client     pb.DeviceMapperServiceClient
-	Ctx        context.Context
-	Conn       *grpc.ClientConn
-	CancelFunc context.CancelFunc
-}
-
-func init() {
-	dmiClientList = make(map[string]*DmiClient)
-}
-
-func GetDMIClientByProtocol(protocol string) (*DmiClient, error) {
-	dc, ok := dmiClientList[protocol]
-	if !ok {
-		return nil, fmt.Errorf("fail to get dmi client of protocol %s", protocol)
-	}
-	return dc, nil
-}
-
 func (s *server) MapperRegister(ctx context.Context, in *pb.MapperRegisterRequest) (*pb.MapperRegisterResponse, error) {
 	if !s.limiter.Allow() {
 		return nil, fmt.Errorf("fail to register mapper because of too many request: %s", in.Mapper.Name)
 	}
 
-	klog.Infof("receive mapper register: %+v", in.Mapper)
+	if in.Mapper.Protocol == "" {
+		klog.Errorf("fail to register mapper %s because the protocol is nil", in.Mapper.Name)
+		return nil, fmt.Errorf("fail to register mapper %s because the protocol is nil", in.Mapper.Name)
+	}
+
+	klog.V(4).Infof("receive mapper register: %+v", in.Mapper)
 	err := saveMapper(in.Mapper)
 	if err != nil {
 		klog.Errorf("fail to save mapper %s to db with err: %v", in.Mapper.Name, err)
@@ -114,7 +98,13 @@ func (s *server) MapperRegister(ctx context.Context, in *pb.MapperRegisterReques
 				klog.Errorf("fail to convert device %s with err: %v", device.Name, err)
 				continue
 			}
-			dm, err := dtcommon.ConvertDeviceModel(s.deviceModelList[device.Spec.DeviceModelRef.Name])
+
+			name, ok := s.deviceModelList[device.Spec.DeviceModelRef.Name]
+			if !ok {
+				klog.Errorf("fail to get device model %s in deviceModelList", s.deviceModelList[device.Spec.DeviceModelRef.Name])
+				continue
+			}
+			dm, err := dtcommon.ConvertDeviceModel(name)
 			if err != nil {
 				klog.Errorf("fail to convert device model %s with err: %v", s.deviceModelList[device.Spec.DeviceModelRef.Name], err)
 				continue
@@ -124,25 +114,10 @@ func (s *server) MapperRegister(ctx context.Context, in *pb.MapperRegisterReques
 		}
 	}
 
-	client, ok := dmiClientList[in.Mapper.Protocol]
-	if ok {
-		klog.Infof("@@@ get client from dmiClientList %s", in.Mapper.Protocol)
-		client.Conn.Close()
-		client.CancelFunc()
-	}
-
-	klog.Infof("@@@ generate DMI client")
-	dc, ctx, conn, cancelFunc, err := dmiclient.GenerateDMIClient(string(in.Mapper.Address))
+	err = dmiclient.CreateDMIClientByProtocol(in.Mapper.Protocol, string(in.Mapper.Address))
 	if err != nil {
 		return nil, err
 	}
-	dmiClientList[in.Mapper.Protocol] = &DmiClient{
-		Client:     dc,
-		Ctx:        ctx,
-		Conn:       conn,
-		CancelFunc: cancelFunc,
-	}
-	klog.Infof("@@@ DMI client list: %+v", dmiClientList)
 
 	return &pb.MapperRegisterResponse{
 		DeviceList: deviceList,
@@ -185,7 +160,7 @@ func handleDeviceTwin(deviceName string, payload []byte) {
 }
 
 // CreateMessageTwinUpdate create twin update message.
-func CreateMessageTwinUpdate(name string, valueType string, value string) (msg []byte, err error) {
+func CreateMessageTwinUpdate(name, valueType, value string) ([]byte, error) {
 	var updateMsg DeviceTwinUpdate
 
 	updateMsg.BaseMessage.Timestamp = getTimestamp()
@@ -194,8 +169,8 @@ func CreateMessageTwinUpdate(name string, valueType string, value string) (msg [
 	updateMsg.Twin[name].Actual = &types.TwinValue{Value: &value}
 	updateMsg.Twin[name].Metadata = &types.TypeMetadata{Type: valueType}
 
-	msg, err = json.Marshal(updateMsg)
-	return
+	msg, err := json.Marshal(updateMsg)
+	return msg, err
 }
 
 func initSock(sockPath string) error {
@@ -240,6 +215,7 @@ func StartDMIServer(mapperList map[string]*pb.MapperInfo, deviceList map[string]
 
 	if err := s.Serve(lis); err != nil {
 		klog.Errorf("failed to start DMI Server with err: %v", err)
+		return
 	}
 	klog.Infoln("success to start DMI Server")
 }

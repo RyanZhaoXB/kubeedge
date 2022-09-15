@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"k8s.io/klog/v2"
 
@@ -39,27 +40,26 @@ import (
 //TwinWorker deal twin event
 type DMIWorker struct {
 	Worker
-	Group string
-}
-
-var (
-	//dmiActionCallBack map for action to callback
-	dmiActionCallBack map[string]CallBack
-
+	Group           string
+	mapperMu        sync.Mutex
+	DeviceMu        sync.Mutex
+	DeviceModelMu   sync.Mutex
 	mapperList      map[string]*pb.MapperInfo
 	deviceModelList map[string]*v1alpha2.DeviceModel
 	deviceList      map[string]*v1alpha2.Device
-)
+	//dmiActionCallBack map for action to callback
+	dmiActionCallBack map[string]CallBack
+}
 
 //Start worker
 func (dw DMIWorker) Start() {
 	klog.Infoln("dmi worker start")
-	initDMIActionCallBack()
-	initDeviceModelInfoFromDB()
-	initDeviceInfoFromDB()
-	initDeviceMapperInfoFromDB()
+	dw.initDMIActionCallBack()
+	dw.initDeviceModelInfoFromDB()
+	dw.initDeviceInfoFromDB()
+	dw.initDeviceMapperInfoFromDB()
 
-	go dmiserver.StartDMIServer(mapperList, deviceList, deviceModelList)
+	go dmiserver.StartDMIServer(dw.mapperList, dw.deviceList, dw.deviceModelList)
 
 	for {
 		select {
@@ -69,7 +69,7 @@ func (dw DMIWorker) Start() {
 			}
 
 			if dtMsg, isDTMessage := msg.(*dttype.DTMessage); isDTMessage {
-				if fn, exist := dmiActionCallBack[dtMsg.Action]; exist {
+				if fn, exist := dw.dmiActionCallBack[dtMsg.Action]; exist {
 					err := fn(dw.DTContexts, dtMsg.Identity, dtMsg.Msg)
 					if err != nil {
 						klog.Errorf("DMIModule deal %s event failed: %v", dtMsg.Action, err)
@@ -90,12 +90,12 @@ func (dw DMIWorker) Start() {
 	}
 }
 
-func initDMIActionCallBack() {
-	dmiActionCallBack = make(map[string]CallBack)
-	dmiActionCallBack[dtcommon.MetaDeviceOperation] = dealMetaDeviceOperation
+func (dw DMIWorker) initDMIActionCallBack() {
+	dw.dmiActionCallBack = make(map[string]CallBack)
+	dw.dmiActionCallBack[dtcommon.MetaDeviceOperation] = dw.dealMetaDeviceOperation
 }
 
-func dealMetaDeviceOperation(context *dtcontext.DTContext, resource string, msg interface{}) error {
+func (dw DMIWorker) dealMetaDeviceOperation(context *dtcontext.DTContext, resource string, msg interface{}) error {
 	message, ok := msg.(*model.Message)
 	if !ok {
 		return errors.New("msg not Message type")
@@ -119,21 +119,27 @@ func dealMetaDeviceOperation(context *dtcontext.DTContext, resource string, msg 
 				klog.Errorf("add device %s failed with err: %s", device.Name, err)
 				return err
 			}
-			deviceList[device.Name] = &device
+			dw.DeviceMu.Lock()
+			dw.deviceList[device.Name] = &device
+			dw.DeviceMu.Unlock()
 		case model.DeleteOperation:
 			err = dmiclient.DMIClientsImp.RemoveDevice(&device)
 			if err != nil {
 				klog.Errorf("delete device %s failed with err: %s", device.Name, err)
 				return err
 			}
-			delete(deviceList, device.Name)
+			dw.DeviceMu.Lock()
+			delete(dw.deviceList, device.Name)
+			dw.DeviceMu.Unlock()
 		case model.UpdateOperation:
 			err = dmiclient.DMIClientsImp.UpdateDevice(&device)
 			if err != nil {
 				klog.Errorf("udpate device %s failed with err: %s", device.Name, err)
 				return err
 			}
-			deviceList[device.Name] = &device
+			dw.DeviceMu.Lock()
+			dw.deviceList[device.Name] = &device
+			dw.DeviceMu.Unlock()
 		default:
 			klog.Warningf("unsupported operation %s", message.GetOperation())
 		}
@@ -149,24 +155,27 @@ func dealMetaDeviceOperation(context *dtcontext.DTContext, resource string, msg 
 				klog.Errorf("add device model %s failed with err: %s", dm.Name, err)
 				return err
 			}
-
-			deviceModelList[dm.Name] = &dm
+			dw.DeviceModelMu.Lock()
+			dw.deviceModelList[dm.Name] = &dm
+			dw.DeviceModelMu.Unlock()
 		case model.DeleteOperation:
 			err = dmiclient.DMIClientsImp.RemoveDeviceModel(&dm)
 			if err != nil {
 				klog.Errorf("delete device model %s failed with err: %s", dm.Name, err)
 				return err
 			}
-
-			delete(deviceModelList, dm.Name)
+			dw.DeviceModelMu.Lock()
+			delete(dw.deviceModelList, dm.Name)
+			dw.DeviceModelMu.Unlock()
 		case model.UpdateOperation:
 			err = dmiclient.DMIClientsImp.UpdateDeviceModel(&dm)
 			if err != nil {
 				klog.Errorf("update device model %s failed with err: %s", dm.Name, err)
 				return err
 			}
-
-			deviceModelList[dm.Name] = &dm
+			dw.DeviceModelMu.Lock()
+			dw.deviceModelList[dm.Name] = &dm
+			dw.DeviceModelMu.Unlock()
 		default:
 			klog.Warningf("unsupported operation %s", message.GetOperation())
 		}
@@ -178,8 +187,8 @@ func dealMetaDeviceOperation(context *dtcontext.DTContext, resource string, msg 
 	return nil
 }
 
-func initDeviceModelInfoFromDB() {
-	deviceModelList = make(map[string]*v1alpha2.DeviceModel)
+func (dw DMIWorker) initDeviceModelInfoFromDB() {
+	dw.deviceModelList = make(map[string]*v1alpha2.DeviceModel)
 	metas, err := dao.QueryMeta("type", constants.ResourceTypeDeviceModel)
 	if err != nil {
 		klog.Errorf("fail to init device model info from db with err: %v", err)
@@ -192,13 +201,15 @@ func initDeviceModelInfoFromDB() {
 			klog.Errorf("fail to unmarshal device model info from db with err: %v", err)
 			return
 		}
-		deviceModelList[deviceModel.Name] = &deviceModel
+		dw.DeviceModelMu.Lock()
+		dw.deviceModelList[deviceModel.Name] = &deviceModel
+		dw.DeviceModelMu.Unlock()
 	}
 	klog.Infoln("success to init device model info from db")
 }
 
-func initDeviceInfoFromDB() {
-	deviceList = make(map[string]*v1alpha2.Device)
+func (dw DMIWorker) initDeviceInfoFromDB() {
+	dw.deviceList = make(map[string]*v1alpha2.Device)
 	metas, err := dao.QueryMeta("type", constants.ResourceTypeDevice)
 	if err != nil {
 		klog.Errorf("fail to init device info from db with err: %v", err)
@@ -211,13 +222,15 @@ func initDeviceInfoFromDB() {
 			klog.Errorf("fail to unmarshal device info from db with err: %v", err)
 			return
 		}
-		deviceList[device.Name] = &device
+		dw.DeviceMu.Lock()
+		dw.deviceList[device.Name] = &device
+		dw.DeviceMu.Unlock()
 	}
 	klog.Infoln("success to init device info from db")
 }
 
-func initDeviceMapperInfoFromDB() {
-	mapperList = make(map[string]*pb.MapperInfo)
+func (dw DMIWorker) initDeviceMapperInfoFromDB() {
+	dw.mapperList = make(map[string]*pb.MapperInfo)
 	metas, err := dao.QueryMeta("type", constants.ResourceTypeDeviceMapper)
 	if err != nil {
 		klog.Errorf("fail to init device mapper info from db with err: %v", err)
@@ -230,7 +243,9 @@ func initDeviceMapperInfoFromDB() {
 			klog.Errorf("fail to unmarshal device mapper info from db with err: %v", err)
 			return
 		}
-		mapperList[deviceMapper.Name] = &deviceMapper
+		dw.mapperMu.Lock()
+		dw.mapperList[deviceMapper.Name] = &deviceMapper
+		dw.mapperMu.Unlock()
 	}
 	klog.Infoln("success to init device mapper info from db")
 }

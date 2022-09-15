@@ -113,11 +113,7 @@ func (s *server) MapperRegister(ctx context.Context, in *pb.MapperRegisterReques
 			deviceModelList = append(deviceModelList, dm)
 		}
 	}
-
-	err = dmiclient.DMIClientsImp.CreateDMIClient(in.Mapper.Protocol, string(in.Mapper.Address))
-	if err != nil {
-		return nil, err
-	}
+	dmiclient.DMIClientsImp.CreateDMIClient(in.Mapper.Protocol, string(in.Mapper.Address))
 
 	return &pb.MapperRegisterResponse{
 		DeviceList: deviceList,

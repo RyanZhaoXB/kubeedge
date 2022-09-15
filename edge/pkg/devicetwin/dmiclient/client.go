@@ -19,6 +19,7 @@ package dmiclient
 import (
 	"fmt"
 	"net"
+	"sync"
 	"time"
 
 	"golang.org/x/net/context"
@@ -31,44 +32,54 @@ import (
 	"github.com/kubeedge/kubeedge/pkg/apis/devices/v1alpha2"
 )
 
-type DmiClient struct {
+type DMIClient struct {
+	protocol   string
+	socket     string
 	Client     dmiapi.DeviceMapperServiceClient
 	Ctx        context.Context
 	Conn       *grpc.ClientConn
 	CancelFunc context.CancelFunc
 }
 
-var dmiClients map[string]*DmiClient
-
-func (dc *DmiClient) Close() {
-	dc.Conn.Close()
-	dc.CancelFunc()
+type DMIClients struct {
+	mutex   sync.Mutex
+	clients map[string]*DMIClient
 }
+
+var DMIClientsImp *DMIClients
 
 func init() {
-	dmiClients = make(map[string]*DmiClient)
+	DMIClientsImp = &DMIClients{
+		mutex:   sync.Mutex{},
+		clients: make(map[string]*DMIClient),
+	}
 }
 
-func generateDMIClient(sockPath string) (*DmiClient, error) {
+func (dc *DMIClient) Connect() error {
 	dialer := func(addr string, t time.Duration) (net.Conn, error) {
 		return net.Dial(deviceconst.UnixNetworkType, addr)
 	}
 
-	conn, err := grpc.Dial(sockPath, grpc.WithInsecure(), grpc.WithDialer(dialer))
+	conn, err := grpc.Dial(dc.socket, grpc.WithInsecure(), grpc.WithDialer(dialer))
 	if err != nil {
-		klog.Errorf("did not connect: %v\n", err)
-		return nil, err
+		klog.Errorf("did not Connect: %v\n", err)
+		return err
 	}
 
 	c := dmiapi.NewMapperClient(conn)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 
-	return &DmiClient{
-		Client:     c,
-		Ctx:        ctx,
-		Conn:       conn,
-		CancelFunc: cancel,
-	}, nil
+	dc.Client = c
+	dc.Ctx = ctx
+	dc.Conn = conn
+	dc.CancelFunc = cancel
+
+	return nil
+}
+
+func (dc *DMIClient) Close() {
+	dc.Conn.Close()
+	dc.CancelFunc()
 }
 
 func createDeviceRequest(device *v1alpha2.Device) (*dmiapi.CreateDeviceRequest, error) {
@@ -127,38 +138,50 @@ func removeDeviceModelRequest(deviceModelName string) (*dmiapi.RemoveDeviceModel
 	}, nil
 }
 
-func getDMIClientByProtocol(protocol string) (*DmiClient, error) {
-	dc, ok := dmiClients[protocol]
+func (dcs *DMIClients) getDMIClientByProtocol(protocol string) (*DMIClient, error) {
+	dc, ok := dcs.clients[protocol]
 	if !ok {
 		return nil, fmt.Errorf("fail to get dmi client of protocol %s", protocol)
 	}
 	return dc, nil
 }
 
-func CreateDMIClientByProtocol(protocol, sockPath string) error {
-	client, err := getDMIClientByProtocol(protocol)
-	if err == nil {
-		client.Close()
+func (dcs *DMIClients) CreateDMIClient(protocol, sockPath string) error {
+	var dc = &DMIClient{
+		protocol: protocol,
+		socket:   sockPath,
 	}
-
-	dc, err := generateDMIClient(sockPath)
-	if err != nil {
-		return err
-	}
-	dmiClients[protocol] = dc
+	dcs.mutex.Lock()
+	dcs.clients[protocol] = dc
+	dcs.mutex.Unlock()
 	return nil
 }
 
-func CreateDevice(device *v1alpha2.Device) error {
+func (dcs *DMIClients) getDMIClient(protocol string) (*DMIClient, error) {
+	dc, err := dcs.getDMIClientByProtocol(protocol)
+	if err != nil {
+		return nil, err
+	}
+
+	err = dc.Connect()
+	if err != nil {
+		return nil, err
+	}
+	return dc, nil
+}
+
+func (dcs *DMIClients) CreateDevice(device *v1alpha2.Device) error {
 	protocol, err := dtcommon.GetProtocolNameOfDevice(device)
 	if err != nil {
 		return err
 	}
 
-	dc, err := getDMIClientByProtocol(protocol)
+	dc, err := dcs.getDMIClient(protocol)
 	if err != nil {
 		return err
 	}
+
+	defer dc.Close()
 
 	cdr, err := createDeviceRequest(device)
 	if err != nil {
@@ -171,16 +194,18 @@ func CreateDevice(device *v1alpha2.Device) error {
 	return nil
 }
 
-func RemoveDevice(device *v1alpha2.Device) error {
+func (dcs *DMIClients) RemoveDevice(device *v1alpha2.Device) error {
 	protocol, err := dtcommon.GetProtocolNameOfDevice(device)
 	if err != nil {
 		return err
 	}
 
-	dc, err := getDMIClientByProtocol(protocol)
+	dc, err := dcs.getDMIClient(protocol)
 	if err != nil {
 		return err
 	}
+
+	defer dc.Close()
 
 	rdr, err := removeDeviceRequest(device.Name)
 	if err != nil {
@@ -193,16 +218,18 @@ func RemoveDevice(device *v1alpha2.Device) error {
 	return nil
 }
 
-func UpdateDevice(device *v1alpha2.Device) error {
+func (dcs *DMIClients) UpdateDevice(device *v1alpha2.Device) error {
 	protocol, err := dtcommon.GetProtocolNameOfDevice(device)
 	if err != nil {
 		return err
 	}
 
-	dc, err := getDMIClientByProtocol(protocol)
+	dc, err := dcs.getDMIClient(protocol)
 	if err != nil {
 		return err
 	}
+
+	defer dc.Close()
 
 	udr, err := updateDeviceRequest(device)
 	if err != nil {
@@ -215,12 +242,14 @@ func UpdateDevice(device *v1alpha2.Device) error {
 	return nil
 }
 
-func CreateDeviceModel(model *v1alpha2.DeviceModel) error {
+func (dcs *DMIClients) CreateDeviceModel(model *v1alpha2.DeviceModel) error {
 	protocol := model.Spec.Protocol
-	dc, err := getDMIClientByProtocol(protocol)
+	dc, err := dcs.getDMIClient(protocol)
 	if err != nil {
 		return err
 	}
+
+	defer dc.Close()
 
 	cdmr, err := createDeviceModelRequest(model)
 	if err != nil {
@@ -233,12 +262,14 @@ func CreateDeviceModel(model *v1alpha2.DeviceModel) error {
 	return nil
 }
 
-func RemoveDeviceModel(model *v1alpha2.DeviceModel) error {
+func (dcs *DMIClients) RemoveDeviceModel(model *v1alpha2.DeviceModel) error {
 	protocol := model.Spec.Protocol
-	dc, err := getDMIClientByProtocol(protocol)
+	dc, err := dcs.getDMIClient(protocol)
 	if err != nil {
 		return err
 	}
+
+	defer dc.Close()
 
 	rdmr, err := removeDeviceModelRequest(model.Name)
 	if err != nil {
@@ -251,12 +282,14 @@ func RemoveDeviceModel(model *v1alpha2.DeviceModel) error {
 	return nil
 }
 
-func UpdateDeviceModel(model *v1alpha2.DeviceModel) error {
+func (dcs *DMIClients) UpdateDeviceModel(model *v1alpha2.DeviceModel) error {
 	protocol := model.Spec.Protocol
-	dc, err := getDMIClientByProtocol(protocol)
+	dc, err := dcs.getDMIClient(protocol)
 	if err != nil {
 		return err
 	}
+
+	defer dc.Close()
 
 	udmr, err := updateDeviceModelRequest(model)
 	if err != nil {

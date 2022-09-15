@@ -114,7 +114,7 @@ func (s *server) MapperRegister(ctx context.Context, in *pb.MapperRegisterReques
 		}
 	}
 
-	err = dmiclient.CreateDMIClientByProtocol(in.Mapper.Protocol, string(in.Mapper.Address))
+	err = dmiclient.DMIClientsImp.CreateDMIClient(in.Mapper.Protocol, string(in.Mapper.Address))
 	if err != nil {
 		return nil, err
 	}

@@ -114,21 +114,21 @@ func dealMetaDeviceOperation(context *dtcontext.DTContext, resource string, msg 
 		}
 		switch message.GetOperation() {
 		case model.InsertOperation:
-			err = dmiclient.CreateDevice(&device)
+			err = dmiclient.DMIClientsImp.CreateDevice(&device)
 			if err != nil {
 				klog.Errorf("add device %s failed with err: %s", device.Name, err)
 				return err
 			}
 			deviceList[device.Name] = &device
 		case model.DeleteOperation:
-			err = dmiclient.RemoveDevice(&device)
+			err = dmiclient.DMIClientsImp.RemoveDevice(&device)
 			if err != nil {
 				klog.Errorf("delete device %s failed with err: %s", device.Name, err)
 				return err
 			}
 			delete(deviceList, device.Name)
 		case model.UpdateOperation:
-			err = dmiclient.UpdateDevice(&device)
+			err = dmiclient.DMIClientsImp.UpdateDevice(&device)
 			if err != nil {
 				klog.Errorf("udpate device %s failed with err: %s", device.Name, err)
 				return err
@@ -144,7 +144,7 @@ func dealMetaDeviceOperation(context *dtcontext.DTContext, resource string, msg 
 		}
 		switch message.GetOperation() {
 		case model.InsertOperation:
-			err = dmiclient.CreateDeviceModel(&dm)
+			err = dmiclient.DMIClientsImp.CreateDeviceModel(&dm)
 			if err != nil {
 				klog.Errorf("add device model %s failed with err: %s", dm.Name, err)
 				return err
@@ -152,7 +152,7 @@ func dealMetaDeviceOperation(context *dtcontext.DTContext, resource string, msg 
 
 			deviceModelList[dm.Name] = &dm
 		case model.DeleteOperation:
-			err = dmiclient.RemoveDeviceModel(&dm)
+			err = dmiclient.DMIClientsImp.RemoveDeviceModel(&dm)
 			if err != nil {
 				klog.Errorf("delete device model %s failed with err: %s", dm.Name, err)
 				return err
@@ -160,7 +160,7 @@ func dealMetaDeviceOperation(context *dtcontext.DTContext, resource string, msg 
 
 			delete(deviceModelList, dm.Name)
 		case model.UpdateOperation:
-			err = dmiclient.UpdateDeviceModel(&dm)
+			err = dmiclient.DMIClientsImp.UpdateDeviceModel(&dm)
 			if err != nil {
 				klog.Errorf("update device model %s failed with err: %s", dm.Name, err)
 				return err

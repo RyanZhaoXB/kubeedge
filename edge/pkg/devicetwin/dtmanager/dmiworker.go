@@ -41,9 +41,9 @@ import (
 type DMIWorker struct {
 	Worker
 	Group           string
-	mapperMu        sync.Mutex
-	DeviceMu        sync.Mutex
-	DeviceModelMu   sync.Mutex
+	mapperMu        *sync.Mutex
+	DeviceMu        *sync.Mutex
+	DeviceModelMu   *sync.Mutex
 	mapperList      map[string]*pb.MapperInfo
 	deviceModelList map[string]*v1alpha2.DeviceModel
 	deviceList      map[string]*v1alpha2.Device
@@ -51,13 +51,20 @@ type DMIWorker struct {
 	dmiActionCallBack map[string]CallBack
 }
 
-//Start worker
-func (dw DMIWorker) Start() {
-	klog.Infoln("dmi worker start")
+func (dw *DMIWorker) init() {
+	dw.mapperMu = &sync.Mutex{}
+	dw.DeviceMu = &sync.Mutex{}
+	dw.DeviceModelMu = &sync.Mutex{}
 	dw.initDMIActionCallBack()
 	dw.initDeviceModelInfoFromDB()
 	dw.initDeviceInfoFromDB()
 	dw.initDeviceMapperInfoFromDB()
+}
+
+//Start worker
+func (dw DMIWorker) Start() {
+	klog.Infoln("dmi worker start")
+	dw.init()
 
 	go dmiserver.StartDMIServer(dw.mapperList, dw.deviceList, dw.deviceModelList)
 
@@ -90,12 +97,12 @@ func (dw DMIWorker) Start() {
 	}
 }
 
-func (dw DMIWorker) initDMIActionCallBack() {
+func (dw *DMIWorker) initDMIActionCallBack() {
 	dw.dmiActionCallBack = make(map[string]CallBack)
 	dw.dmiActionCallBack[dtcommon.MetaDeviceOperation] = dw.dealMetaDeviceOperation
 }
 
-func (dw DMIWorker) dealMetaDeviceOperation(context *dtcontext.DTContext, resource string, msg interface{}) error {
+func (dw *DMIWorker) dealMetaDeviceOperation(context *dtcontext.DTContext, resource string, msg interface{}) error {
 	message, ok := msg.(*model.Message)
 	if !ok {
 		return errors.New("msg not Message type")
@@ -187,7 +194,7 @@ func (dw DMIWorker) dealMetaDeviceOperation(context *dtcontext.DTContext, resour
 	return nil
 }
 
-func (dw DMIWorker) initDeviceModelInfoFromDB() {
+func (dw *DMIWorker) initDeviceModelInfoFromDB() {
 	dw.deviceModelList = make(map[string]*v1alpha2.DeviceModel)
 	metas, err := dao.QueryMeta("type", constants.ResourceTypeDeviceModel)
 	if err != nil {
@@ -208,7 +215,7 @@ func (dw DMIWorker) initDeviceModelInfoFromDB() {
 	klog.Infoln("success to init device model info from db")
 }
 
-func (dw DMIWorker) initDeviceInfoFromDB() {
+func (dw *DMIWorker) initDeviceInfoFromDB() {
 	dw.deviceList = make(map[string]*v1alpha2.Device)
 	metas, err := dao.QueryMeta("type", constants.ResourceTypeDevice)
 	if err != nil {
@@ -229,7 +236,7 @@ func (dw DMIWorker) initDeviceInfoFromDB() {
 	klog.Infoln("success to init device info from db")
 }
 
-func (dw DMIWorker) initDeviceMapperInfoFromDB() {
+func (dw *DMIWorker) initDeviceMapperInfoFromDB() {
 	dw.mapperList = make(map[string]*pb.MapperInfo)
 	metas, err := dao.QueryMeta("type", constants.ResourceTypeDeviceMapper)
 	if err != nil {

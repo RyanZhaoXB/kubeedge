@@ -162,7 +162,6 @@ func (dcs *DMIClients) CreateDMIClient(protocol, sockPath string) {
 		socket:   sockPath,
 	}
 	dcs.mutex.Unlock()
-	return
 }
 
 func (dcs *DMIClients) getDMIClientConn(protocol string) (*DMIClient, error) {

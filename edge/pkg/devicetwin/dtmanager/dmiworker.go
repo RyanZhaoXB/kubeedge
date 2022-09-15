@@ -40,21 +40,22 @@ import (
 //TwinWorker deal twin event
 type DMIWorker struct {
 	Worker
-	Group           string
-	mapperMu        *sync.Mutex
-	DeviceMu        *sync.Mutex
-	DeviceModelMu   *sync.Mutex
-	mapperList      map[string]*pb.MapperInfo
-	deviceModelList map[string]*v1alpha2.DeviceModel
-	deviceList      map[string]*v1alpha2.Device
+	Group    string
+	dmiCache *dmiserver.DMICache
 	//dmiActionCallBack map for action to callback
 	dmiActionCallBack map[string]CallBack
 }
 
 func (dw *DMIWorker) init() {
-	dw.mapperMu = &sync.Mutex{}
-	dw.DeviceMu = &sync.Mutex{}
-	dw.DeviceModelMu = &sync.Mutex{}
+	dw.dmiCache = &dmiserver.DMICache{
+		MapperMu:        &sync.Mutex{},
+		DeviceMu:        &sync.Mutex{},
+		DeviceModelMu:   &sync.Mutex{},
+		MapperList:      make(map[string]*pb.MapperInfo),
+		DeviceList:      make(map[string]*v1alpha2.Device),
+		DeviceModelList: make(map[string]*v1alpha2.DeviceModel),
+	}
+
 	dw.initDMIActionCallBack()
 	dw.initDeviceModelInfoFromDB()
 	dw.initDeviceInfoFromDB()
@@ -66,7 +67,7 @@ func (dw DMIWorker) Start() {
 	klog.Infoln("dmi worker start")
 	dw.init()
 
-	go dmiserver.StartDMIServer(dw.mapperList, dw.deviceList, dw.deviceModelList)
+	go dmiserver.StartDMIServer(dw.dmiCache)
 
 	for {
 		select {
@@ -126,27 +127,27 @@ func (dw *DMIWorker) dealMetaDeviceOperation(context *dtcontext.DTContext, resou
 				klog.Errorf("add device %s failed with err: %s", device.Name, err)
 				return err
 			}
-			dw.DeviceMu.Lock()
-			dw.deviceList[device.Name] = &device
-			dw.DeviceMu.Unlock()
+			dw.dmiCache.DeviceMu.Lock()
+			dw.dmiCache.DeviceList[device.Name] = &device
+			dw.dmiCache.DeviceMu.Unlock()
 		case model.DeleteOperation:
 			err = dmiclient.DMIClientsImp.RemoveDevice(&device)
 			if err != nil {
 				klog.Errorf("delete device %s failed with err: %s", device.Name, err)
 				return err
 			}
-			dw.DeviceMu.Lock()
-			delete(dw.deviceList, device.Name)
-			dw.DeviceMu.Unlock()
+			dw.dmiCache.DeviceMu.Lock()
+			delete(dw.dmiCache.DeviceList, device.Name)
+			dw.dmiCache.DeviceMu.Unlock()
 		case model.UpdateOperation:
 			err = dmiclient.DMIClientsImp.UpdateDevice(&device)
 			if err != nil {
 				klog.Errorf("udpate device %s failed with err: %s", device.Name, err)
 				return err
 			}
-			dw.DeviceMu.Lock()
-			dw.deviceList[device.Name] = &device
-			dw.DeviceMu.Unlock()
+			dw.dmiCache.DeviceMu.Lock()
+			dw.dmiCache.DeviceList[device.Name] = &device
+			dw.dmiCache.DeviceMu.Unlock()
 		default:
 			klog.Warningf("unsupported operation %s", message.GetOperation())
 		}
@@ -162,27 +163,27 @@ func (dw *DMIWorker) dealMetaDeviceOperation(context *dtcontext.DTContext, resou
 				klog.Errorf("add device model %s failed with err: %s", dm.Name, err)
 				return err
 			}
-			dw.DeviceModelMu.Lock()
-			dw.deviceModelList[dm.Name] = &dm
-			dw.DeviceModelMu.Unlock()
+			dw.dmiCache.DeviceModelMu.Lock()
+			dw.dmiCache.DeviceModelList[dm.Name] = &dm
+			dw.dmiCache.DeviceModelMu.Unlock()
 		case model.DeleteOperation:
 			err = dmiclient.DMIClientsImp.RemoveDeviceModel(&dm)
 			if err != nil {
 				klog.Errorf("delete device model %s failed with err: %s", dm.Name, err)
 				return err
 			}
-			dw.DeviceModelMu.Lock()
-			delete(dw.deviceModelList, dm.Name)
-			dw.DeviceModelMu.Unlock()
+			dw.dmiCache.DeviceModelMu.Lock()
+			delete(dw.dmiCache.DeviceModelList, dm.Name)
+			dw.dmiCache.DeviceModelMu.Unlock()
 		case model.UpdateOperation:
 			err = dmiclient.DMIClientsImp.UpdateDeviceModel(&dm)
 			if err != nil {
 				klog.Errorf("update device model %s failed with err: %s", dm.Name, err)
 				return err
 			}
-			dw.DeviceModelMu.Lock()
-			dw.deviceModelList[dm.Name] = &dm
-			dw.DeviceModelMu.Unlock()
+			dw.dmiCache.DeviceModelMu.Lock()
+			dw.dmiCache.DeviceModelList[dm.Name] = &dm
+			dw.dmiCache.DeviceModelMu.Unlock()
 		default:
 			klog.Warningf("unsupported operation %s", message.GetOperation())
 		}
@@ -195,7 +196,6 @@ func (dw *DMIWorker) dealMetaDeviceOperation(context *dtcontext.DTContext, resou
 }
 
 func (dw *DMIWorker) initDeviceModelInfoFromDB() {
-	dw.deviceModelList = make(map[string]*v1alpha2.DeviceModel)
 	metas, err := dao.QueryMeta("type", constants.ResourceTypeDeviceModel)
 	if err != nil {
 		klog.Errorf("fail to init device model info from db with err: %v", err)
@@ -208,15 +208,14 @@ func (dw *DMIWorker) initDeviceModelInfoFromDB() {
 			klog.Errorf("fail to unmarshal device model info from db with err: %v", err)
 			return
 		}
-		dw.DeviceModelMu.Lock()
-		dw.deviceModelList[deviceModel.Name] = &deviceModel
-		dw.DeviceModelMu.Unlock()
+		dw.dmiCache.DeviceModelMu.Lock()
+		dw.dmiCache.DeviceModelList[deviceModel.Name] = &deviceModel
+		dw.dmiCache.DeviceModelMu.Unlock()
 	}
 	klog.Infoln("success to init device model info from db")
 }
 
 func (dw *DMIWorker) initDeviceInfoFromDB() {
-	dw.deviceList = make(map[string]*v1alpha2.Device)
 	metas, err := dao.QueryMeta("type", constants.ResourceTypeDevice)
 	if err != nil {
 		klog.Errorf("fail to init device info from db with err: %v", err)
@@ -229,15 +228,14 @@ func (dw *DMIWorker) initDeviceInfoFromDB() {
 			klog.Errorf("fail to unmarshal device info from db with err: %v", err)
 			return
 		}
-		dw.DeviceMu.Lock()
-		dw.deviceList[device.Name] = &device
-		dw.DeviceMu.Unlock()
+		dw.dmiCache.DeviceMu.Lock()
+		dw.dmiCache.DeviceList[device.Name] = &device
+		dw.dmiCache.DeviceMu.Unlock()
 	}
 	klog.Infoln("success to init device info from db")
 }
 
 func (dw *DMIWorker) initDeviceMapperInfoFromDB() {
-	dw.mapperList = make(map[string]*pb.MapperInfo)
 	metas, err := dao.QueryMeta("type", constants.ResourceTypeDeviceMapper)
 	if err != nil {
 		klog.Errorf("fail to init device mapper info from db with err: %v", err)
@@ -250,9 +248,9 @@ func (dw *DMIWorker) initDeviceMapperInfoFromDB() {
 			klog.Errorf("fail to unmarshal device mapper info from db with err: %v", err)
 			return
 		}
-		dw.mapperMu.Lock()
-		dw.mapperList[deviceMapper.Name] = &deviceMapper
-		dw.mapperMu.Unlock()
+		dw.dmiCache.MapperMu.Lock()
+		dw.dmiCache.MapperList[deviceMapper.Name] = &deviceMapper
+		dw.dmiCache.MapperMu.Unlock()
 	}
 	klog.Infoln("success to init device mapper info from db")
 }

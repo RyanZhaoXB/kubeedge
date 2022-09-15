@@ -52,11 +52,17 @@ const (
 )
 
 type server struct {
-	mu              sync.Mutex
-	limiter         *rate.Limiter
-	mapperList      map[string]*pb.MapperInfo
-	deviceList      map[string]*v1alpha2.Device
-	deviceModelList map[string]*v1alpha2.DeviceModel
+	limiter  *rate.Limiter
+	dmiCache *DMICache
+}
+
+type DMICache struct {
+	MapperMu        *sync.Mutex
+	DeviceMu        *sync.Mutex
+	DeviceModelMu   *sync.Mutex
+	MapperList      map[string]*pb.MapperInfo
+	DeviceModelList map[string]*v1alpha2.DeviceModel
+	DeviceList      map[string]*v1alpha2.Device
 }
 
 func (s *server) MapperRegister(ctx context.Context, in *pb.MapperRegisterRequest) (*pb.MapperRegisterResponse, error) {
@@ -75,9 +81,9 @@ func (s *server) MapperRegister(ctx context.Context, in *pb.MapperRegisterReques
 		klog.Errorf("fail to save mapper %s to db with err: %v", in.Mapper.Name, err)
 		return nil, err
 	}
-	s.mu.Lock()
-	s.mapperList[in.Mapper.Name] = in.Mapper
-	s.mu.Unlock()
+	s.dmiCache.MapperMu.Lock()
+	s.dmiCache.MapperList[in.Mapper.Name] = in.Mapper
+	s.dmiCache.MapperMu.Unlock()
 
 	if !in.WithData {
 		return &pb.MapperRegisterResponse{}, nil
@@ -85,7 +91,7 @@ func (s *server) MapperRegister(ctx context.Context, in *pb.MapperRegisterReques
 
 	var deviceList []*pb.Device
 	var deviceModelList []*pb.DeviceModel
-	for _, device := range s.deviceList {
+	for _, device := range s.dmiCache.DeviceList {
 		protocol, err := dtcommon.GetProtocolNameOfDevice(device)
 		if err != nil {
 			klog.Errorf("fail to get protocol name with err: %+v", err)
@@ -99,14 +105,14 @@ func (s *server) MapperRegister(ctx context.Context, in *pb.MapperRegisterReques
 				continue
 			}
 
-			name, ok := s.deviceModelList[device.Spec.DeviceModelRef.Name]
+			name, ok := s.dmiCache.DeviceModelList[device.Spec.DeviceModelRef.Name]
 			if !ok {
-				klog.Errorf("fail to get device model %s in deviceModelList", s.deviceModelList[device.Spec.DeviceModelRef.Name])
+				klog.Errorf("fail to get device model %s in deviceModelList", s.dmiCache.DeviceModelList[device.Spec.DeviceModelRef.Name])
 				continue
 			}
 			dm, err := dtcommon.ConvertDeviceModel(name)
 			if err != nil {
-				klog.Errorf("fail to convert device model %s with err: %v", s.deviceModelList[device.Spec.DeviceModelRef.Name], err)
+				klog.Errorf("fail to convert device model %s with err: %v", s.dmiCache.DeviceModelList[device.Spec.DeviceModelRef.Name], err)
 				continue
 			}
 			deviceList = append(deviceList, dev)
@@ -185,7 +191,7 @@ func initSock(sockPath string) error {
 	}
 }
 
-func StartDMIServer(mapperList map[string]*pb.MapperInfo, deviceList map[string]*v1alpha2.Device, deviceModelList map[string]*v1alpha2.DeviceModel) {
+func StartDMIServer(cache *DMICache) {
 	err := initSock(SockPath)
 	if err != nil {
 		klog.Fatalf("failed to remove uds socket with err: %v", err)
@@ -202,10 +208,8 @@ func StartDMIServer(mapperList map[string]*pb.MapperInfo, deviceList map[string]
 
 	s := grpc.NewServer()
 	pb.RegisterDeviceManagerServiceServer(s, &server{
-		limiter:         limiter,
-		mapperList:      mapperList,
-		deviceList:      deviceList,
-		deviceModelList: deviceModelList,
+		limiter:  limiter,
+		dmiCache: cache,
 	})
 	reflection.Register(s)
 

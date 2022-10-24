@@ -136,6 +136,7 @@ func (dw *DMIWorker) dealMetaDeviceOperation(context *dtcontext.DTContext, resou
 				klog.Errorf("delete device %s failed with err: %v", device.Name, err)
 				return err
 			}
+			//todo: should remove device whether grpc imp is successful
 			dw.dmiCache.DeviceMu.Lock()
 			delete(dw.dmiCache.DeviceList, device.Name)
 			dw.dmiCache.DeviceMu.Unlock()
